@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Examination Management & Marks Entry - Coaching Center Management System</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="teachers.css">
+</head>
+
+<body>
+  <!-- Sidebar backdrop for mobile -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="material-symbols-outlined">school</span>
+        </div>
+        <div class="sidebar-brand">
+          <h1>Coaching Center</h1>
+          <p>ADMIN CONSOLE</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="nav-link">
+          <span class="material-symbols-outlined">grid_view</span>
+          Dashboard
+        </a>
+        <a href="students.html" class="nav-link">
+          <span class="material-symbols-outlined">school</span>
+          Students
+        </a>
+        <a href="payments.html" class="nav-link">
+          <span class="material-symbols-outlined">receipt_long</span>
+          Payments
+        </a>
+        <a href="teachers.html" class="nav-link">
+          <span class="material-symbols-outlined">badge</span>
+          Teachers
+        </a>
+        <a href="academic.html" class="nav-link">
+          <span class="material-symbols-outlined">menu_book</span>
+          Academic & Subjects
+        </a>
+        <a href="examinations.html" class="nav-link active">
+          <span class="material-symbols-outlined">quiz</span>
+          Examinations
+        </a>
+        <a href="result-cards.html" class="nav-link">
+          <span class="material-symbols-outlined">workspace_premium</span>
+          Result Cards
+        </a>
+        <a href="staff.html" class="nav-link">
+          <span class="material-symbols-outlined">assignment_ind</span>
+          Staff
+        </a>
+        <a href="monthly-overview.html" class="nav-link">
+          <span class="material-symbols-outlined">calendar_month</span>
+          Monthly Overview
+        </a>
+        <a href="expenses.html" class="nav-link">
+          <span class="material-symbols-outlined">payments</span>
+          Expenses
+        </a>
+        <a href="reports.html" class="nav-link">
+          <span class="material-symbols-outlined">bar_chart</span>
+          Reports
+        </a>
+        <a href="settings.html" class="nav-link">
+          <span class="material-symbols-outlined">settings</span>
+          Settings
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="system-status-badge">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #1e293b;">Enterprise v2.6</span>
+            <span class="status-indicator"></span>
+          </div>
+          <p style="color: #64748b; font-size: 0.7rem;">Local SQLite Active</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0;">
+          <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open navigation menu" title="Open menu">
+            <span class="material-symbols-outlined" style="font-size: 1.3rem;">menu</span>
+          </button>
+          <div style="font-weight: 700; font-size: 1.15rem; color: #0f172a;">Examinations & Marks Entry</div>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="badge-tag" id="activeAyBadge">AY 2026</span>
+          <div class="topbar-date" id="topbarDate">--</div>
+        </div>
+      </header>
+
+      <!-- Page Body -->
+      <main class="page-content">
+        <!-- Breadcrumbs & Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Academic Evaluation Engine</div>
+            <h2 style="font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0.15rem 0;">Examinations, Marks & Conversions</h2>
+            <p style="font-size: 0.82rem; color: #64748b; margin: 0;">General (30% MT + 70% Term with 0.5 Rounding) and Hifz (Direct CT & Final Marks) evaluation.</p>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" id="openAddExamModalBtn" style="background: #004ac6;">
+              <span class="material-symbols-outlined" style="font-size: 1rem;">add_circle</span> Create Examination
+            </button>
+          </div>
+        </div>
+
+        <!-- Examinations List Section -->
+        <div class="card" style="padding: 1.25rem; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem;">Scheduled Examinations</div>
+
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <select id="examStreamFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 130px;">
+                <option value="">All Streams</option>
+                <option value="General">General Stream</option>
+                <option value="Hifz">Hifz Stream</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="data-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Exam Title</th>
+                  <th>Stream</th>
+                  <th>Type</th>
+                  <th>Class Scope</th>
+                  <th>Formula Weighting</th>
+                  <th>Status</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="examsTableBody">
+                <tr>
+                  <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">Loading examinations...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- MARKS ENTRY PANEL -->
+        <div class="card" id="marksEntryCard" style="padding: 1.25rem; border: 2px solid #e2e8f0;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="material-symbols-outlined" style="color: #004ac6;">edit_note</span>
+                <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;" id="marksEntryTitle">Marks Entry Workspace</h3>
+              </div>
+              <p style="font-size: 0.78rem; color: #64748b; margin: 0.2rem 0 0;" id="marksEntrySubtitle">
+                Select an examination, class, and subject below to load the live marks scoring sheet.
+              </p>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <button class="btn btn-secondary btn-sm" id="viewResultCardsBtn" style="display: none;">
+                <span class="material-symbols-outlined" style="font-size: 1rem;">workspace_premium</span> View Result Cards
+              </button>
+              <button class="btn btn-primary btn-sm" id="saveMarksBtn" style="background: #16a34a; display: none;">
+                <span class="material-symbols-outlined" style="font-size: 1rem;">save</span> Save All Marks
+              </button>
+            </div>
+          </div>
+
+          <!-- Selector Controls -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; background: #f8fafc; padding: 0.85rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">SELECT EXAM *</label>
+              <select id="sheetExamSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select examination...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">CLASS *</label>
+              <select id="sheetClassSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select class...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">SUBJECT *</label>
+              <select id="sheetSubjectSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select subject...</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Live Marks Sheet Table -->
+          <div class="data-table-container" style="max-height: 520px; overflow-y: auto;">
+            <table class="data-table" id="marksSheetTable">
+              <thead id="marksSheetThead">
+                <tr>
+                  <th style="width: 70px;">Roll</th>
+                  <th>Student Name</th>
+                  <th>MT 1 (100)</th>
+                  <th>MT 2 (100)</th>
+                  <th>MT Avg (30%)</th>
+                  <th>Main Exam (100)</th>
+                  <th>Main (70%)</th>
+                  <th>Final Score (0.5 Rnd)</th>
+                  <th>Grade & GP</th>
+                  <th>Absent?</th>
+                </tr>
+              </thead>
+              <tbody id="marksSheetTbody">
+                <tr>
+                  <td colspan="10" style="text-align: center; padding: 3rem; color: #64748b;">
+                    Please select an Examination, Class, and Subject above to begin entering marks.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal: Create Examination -->
+  <div id="examModal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Create New Examination</h3>
+        <button type="button" class="modal-close" onclick="closeModal('examModal')" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="examForm">
+        <div class="modal-body" style="gap: 0.9rem;">
+          <div class="form-group">
+            <label class="form-label" for="examNameInput">Examination Name *</label>
+            <input type="text" id="examNameInput" class="form-control" placeholder="e.g. Half-Yearly Examination 2026" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examStreamSelect">Academic Stream *</label>
+              <select id="examStreamSelect" class="form-control" required>
+                <option value="General" selected>General Stream</option>
+                <option value="Hifz">Hifz Stream</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examTypeSelect">Examination Type *</label>
+              <select id="examTypeSelect" class="form-control" required>
+                <option value="half_yearly">Half-Yearly (MT1, MT2 + Term)</option>
+                <option value="final">Final Exam (MT3, MT4 + Final)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examStartDateInput">Start Date</label>
+              <input type="date" id="examStartDateInput" class="form-control">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examEndDateInput">End Date</label>
+              <input type="date" id="examEndDateInput" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-row" id="weightingRow">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examWeightMonthlyInput">Monthly Test Weight (%)</label>
+              <input type="number" id="examWeightMonthlyInput" class="form-control" value="30" min="0" max="100">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="examWeightMainInput">Main Exam Weight (%)</label>
+              <input type="number" id="examWeightMainInput" class="form-control" value="70" min="0" max="100">
+            </div>
+          </div>
+
+          <small style="color: #64748b; font-size: 0.74rem; background: #f8fafc; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0; display: block;">
+            <strong>Rule Enforcement:</strong> General stream will convert monthly tests into 30% and term exam into 70%, rounding the sum to the nearest 0.5. Hifz stream uses direct marks summation capped at 100.
+          </small>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('examModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveExamBtn">Create Examination</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="examinations.js"></script>
+  <script>
+    (function () {
+      var menuBtn = document.getElementById('mobileMenuBtn');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      var sidebar = document.querySelector('.app-sidebar');
+      if (!menuBtn || !sidebar) return;
+      function openSidebar() { sidebar.classList.add('open'); if (backdrop) backdrop.classList.add('active'); }
+      function closeSidebar() { sidebar.classList.remove('open'); if (backdrop) backdrop.classList.remove('active'); }
+      menuBtn.addEventListener('click', function () { sidebar.classList.contains('open') ? closeSidebar() : openSidebar(); });
+      if (backdrop) backdrop.addEventListener('click', closeSidebar);
+      sidebar.querySelectorAll('.nav-link').forEach(function (l) { l.addEventListener('click', function () { if (window.innerWidth <= 1024) closeSidebar(); }); });
+    })();
+  </script>
+</body>
+
+</html>

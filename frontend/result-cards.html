@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Progress Reports & Result Cards - Coaching Center Management System</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="teachers.css">
+  <link rel="stylesheet" href="result-cards.css">
+</head>
+
+<body>
+  <!-- Sidebar backdrop for mobile -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="app-sidebar no-print">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="material-symbols-outlined">school</span>
+        </div>
+        <div class="sidebar-brand">
+          <h1>Coaching Center</h1>
+          <p>ADMIN CONSOLE</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="nav-link">
+          <span class="material-symbols-outlined">grid_view</span>
+          Dashboard
+        </a>
+        <a href="students.html" class="nav-link">
+          <span class="material-symbols-outlined">school</span>
+          Students
+        </a>
+        <a href="payments.html" class="nav-link">
+          <span class="material-symbols-outlined">receipt_long</span>
+          Payments
+        </a>
+        <a href="teachers.html" class="nav-link">
+          <span class="material-symbols-outlined">badge</span>
+          Teachers
+        </a>
+        <a href="academic.html" class="nav-link">
+          <span class="material-symbols-outlined">menu_book</span>
+          Academic & Subjects
+        </a>
+        <a href="examinations.html" class="nav-link">
+          <span class="material-symbols-outlined">quiz</span>
+          Examinations
+        </a>
+        <a href="result-cards.html" class="nav-link active">
+          <span class="material-symbols-outlined">workspace_premium</span>
+          Result Cards
+        </a>
+        <a href="staff.html" class="nav-link">
+          <span class="material-symbols-outlined">assignment_ind</span>
+          Staff
+        </a>
+        <a href="monthly-overview.html" class="nav-link">
+          <span class="material-symbols-outlined">calendar_month</span>
+          Monthly Overview
+        </a>
+        <a href="expenses.html" class="nav-link">
+          <span class="material-symbols-outlined">payments</span>
+          Expenses
+        </a>
+        <a href="reports.html" class="nav-link">
+          <span class="material-symbols-outlined">bar_chart</span>
+          Reports
+        </a>
+        <a href="settings.html" class="nav-link">
+          <span class="material-symbols-outlined">settings</span>
+          Settings
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="system-status-badge">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #1e293b;">Enterprise v2.6</span>
+            <span class="status-indicator"></span>
+          </div>
+          <p style="color: #64748b; font-size: 0.7rem;">Local SQLite Active</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar no-print">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0;">
+          <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open navigation menu" title="Open menu">
+            <span class="material-symbols-outlined" style="font-size: 1.3rem;">menu</span>
+          </button>
+          <div style="font-weight: 700; font-size: 1.15rem; color: #0f172a;">Aleya Begum Modern School • Progress Reports</div>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="badge-tag" id="activeAyBadge">AY 2026</span>
+          <button class="btn btn-primary btn-sm" id="printAllBtn" onclick="window.print()" style="background: #004ac6;">
+            <span class="material-symbols-outlined" style="font-size: 1rem;">print</span> Print Report Cards
+          </button>
+        </div>
+      </header>
+
+      <!-- Page Body -->
+      <main class="page-content">
+        <!-- Filter Controls Card -->
+        <div class="card filter-controls-card no-print" style="padding: 1.25rem; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem;">
+            <div>
+              <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Progress Card Generator</div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin: 0.15rem 0;">Student Evaluation Dossiers & Academic Transcripts</h3>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.75rem; align-items: flex-end;">
+            <div>
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: #64748b;">EXAMINATION *</label>
+              <select id="cardExamSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select examination...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: #64748b;">CLASS *</label>
+              <select id="cardClassSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select class...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 700; color: #64748b;">STUDENT (OPTIONAL)</label>
+              <select id="cardStudentSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">All Students in Class</option>
+              </select>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn btn-primary" id="loadCardsBtn" style="background: #004ac6; flex: 1;">
+                <span class="material-symbols-outlined" style="font-size: 1.1rem;">refresh</span> Generate
+              </button>
+              <button class="btn btn-secondary" id="openEditMetaBtn" style="white-space: nowrap;">
+                <span class="material-symbols-outlined" style="font-size: 1.1rem;">edit_calendar</span> Remarks / Attendance
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Result Cards Render Output Container -->
+        <div id="resultCardsContainer">
+          <div style="text-align: center; padding: 4rem 1rem; color: #64748b; background: white; border-radius: 8px; border: 1px dashed #cbd5e1;" class="no-print">
+            <span class="material-symbols-outlined" style="font-size: 3rem; color: #94a3b8; display: block; margin-bottom: 0.5rem;">workspace_premium</span>
+            <h4 style="font-size: 1.1rem; color: #1e293b; margin: 0 0 0.35rem 0;">No Result Cards Generated</h4>
+            <p style="font-size: 0.85rem; margin: 0;">Select an Examination and Class above and click "Generate" to view and print official Aleya Begum Modern School Progress Reports.</p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Student Attendance & Remarks -->
+  <div id="metaModal" class="modal-overlay no-print">
+    <div class="modal-dialog" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Edit Attendance & Remarks</h3>
+        <button type="button" class="modal-close" onclick="closeModal('metaModal')" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="metaForm">
+        <input type="hidden" id="metaStudentId">
+        <div class="modal-body" style="gap: 0.9rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.65rem 0.85rem;">
+            <div style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Student</div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #004ac6;" id="metaStudentName">-</div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="metaWorkingDays">Total Working Days</label>
+              <input type="number" id="metaWorkingDays" class="form-control" value="120" min="0">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="metaPresence">Presence (Days)</label>
+              <input type="number" id="metaPresence" class="form-control" value="112" min="0">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="metaAbsent">Absent (Days)</label>
+              <input type="number" id="metaAbsent" class="form-control" value="8" min="0">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="metaDiscipline">Manners & Discipline</label>
+            <select id="metaDiscipline" class="form-control">
+              <option value="Excellent">Excellent</option>
+              <option value="Very Good" selected>Very Good</option>
+              <option value="Good">Good</option>
+              <option value="Satisfactory">Satisfactory</option>
+              <option value="Needs Improvement">Needs Improvement</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="metaTeacherRemarks">Class Teacher's Remarks</label>
+            <input type="text" id="metaTeacherRemarks" class="form-control" placeholder="e.g. Attentive in class, good progress.">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="metaPrincipalRemarks">Principal's Remarks</label>
+            <input type="text" id="metaPrincipalRemarks" class="form-control" placeholder="e.g. Promoted with commendable performance.">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('metaModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="background: #004ac6;">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="result-cards.js"></script>
+  <script>
+    (function () {
+      var menuBtn = document.getElementById('mobileMenuBtn');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      var sidebar = document.querySelector('.app-sidebar');
+      if (!menuBtn || !sidebar) return;
+      function openSidebar() { sidebar.classList.add('open'); if (backdrop) backdrop.classList.add('active'); }
+      function closeSidebar() { sidebar.classList.remove('open'); if (backdrop) backdrop.classList.remove('active'); }
+      menuBtn.addEventListener('click', function () { sidebar.classList.contains('open') ? closeSidebar() : openSidebar(); });
+      if (backdrop) backdrop.addEventListener('click', closeSidebar);
+      sidebar.querySelectorAll('.nav-link').forEach(function (l) { l.addEventListener('click', function () { if (window.innerWidth <= 1024) closeSidebar(); }); });
+    })();
+  </script>
+</body>
+
+</html>

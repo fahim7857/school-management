@@ -86,15 +86,19 @@ async function loadClasses() {
 async function loadStudents() {
   const search = document.getElementById('filter-search-input').value.trim();
   const classId = document.getElementById('filter-class-select').value;
+  const stream = document.getElementById('filter-stream-select')?.value || '';
   const paymentStatus = document.getElementById('filter-payment-select').value;
 
   try {
-    const res = await api.get('/students', {
+    const params = {
       search,
       class_id: classId,
       payment_status: paymentStatus,
       month: getCurrentMonthName()
-    });
+    };
+    if (stream) params.stream = stream;
+
+    const res = await api.get('/students', params);
 
     allStudents = res.data;
     renderStats(allStudents);
@@ -137,6 +141,9 @@ function renderStudentsTable(students) {
   tbody.innerHTML = students.map(st => {
     const isPaid = st.current_month_status === 'Paid';
     const initials = st.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+    const streamBadge = st.stream === 'Hifz'
+      ? '<span class="rate-badge" style="background: #d1fae5; color: #065f46; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; font-weight: 700; margin-left: 4px;">Hifz</span>'
+      : '<span class="rate-badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; font-weight: 700; margin-left: 4px;">General</span>';
 
     return `
       <tr>
@@ -163,8 +170,14 @@ function renderStudentsTable(students) {
             </div>
           </div>
         </td>
-        <td style="color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${st.phone}</td>
-        <td><span class="badge-tag">${st.class_name}</span></td>
+        <td style="color: #334155; white-space: nowrap;">
+          <div>${st.phone || '<span style="color:#94a3b8;">N/A</span>'} ${st.primary_contact === 'primary' && st.phone_secondary ? '<span style="font-size:0.65rem; color:#0284c7;">(P)</span>' : ''}</div>
+          ${st.phone_secondary ? `<div style="font-size: 0.72rem; color: #64748b;">${st.phone_secondary} ${st.primary_contact === 'secondary' ? '<span style="font-size:0.65rem; color:#0284c7;">(P)</span>' : ''}</div>` : ''}
+        </td>
+        <td>
+          <span class="badge-tag">${st.class_name}</span>
+          ${streamBadge}
+        </td>
         <td style="font-weight: 600;">${formatCurrency(st.monthly_fee)}</td>
         <td style="color: #64748b; font-size: 0.8rem; white-space: nowrap;">${formatDate(st.admission_date)}</td>
         <td>
@@ -200,11 +213,17 @@ function renderStudentsTable(students) {
 function setupEventListeners() {
   document.getElementById('filter-search-input').addEventListener('input', debounce(loadStudents, 300));
   document.getElementById('filter-class-select').addEventListener('change', loadStudents);
+  const streamFilter = document.getElementById('filter-stream-select');
+  if (streamFilter) streamFilter.addEventListener('change', loadStudents);
   document.getElementById('filter-payment-select').addEventListener('change', loadStudents);
 
   const modalClass = document.getElementById('modal-student-class-select');
   if (modalClass) {
     modalClass.addEventListener('change', updateNextRollPreview);
+  }
+  const modalStream = document.getElementById('modal-student-stream-select');
+  if (modalStream) {
+    modalStream.addEventListener('change', updateNextRollPreview);
   }
 
   const formAdd = document.getElementById('form-add-student-modal');
@@ -218,8 +237,12 @@ function setupEventListeners() {
           father_name: form.father_name.value,
           mother_name: form.mother_name.value,
           phone: form.phone.value,
+          phone_secondary: form.phone_secondary ? form.phone_secondary.value : '',
+          primary_contact: form.primary_contact ? form.primary_contact.value : 'primary',
+          notes: form.notes ? form.notes.value : '',
           address: form.address.value,
           class_id: form.class_id.value,
+          stream: form.stream ? form.stream.value : 'General',
           admission_date: form.admission_date.value || today
         });
         showToast(`Student admitted successfully with Roll #${res.data.roll_number}!`, 'success');
@@ -244,7 +267,11 @@ function setupEventListeners() {
           father_name: form.father_name.value,
           mother_name: form.mother_name.value,
           phone: form.phone.value,
+          phone_secondary: form.phone_secondary ? form.phone_secondary.value : '',
+          primary_contact: form.primary_contact ? form.primary_contact.value : 'primary',
+          notes: form.notes ? form.notes.value : '',
           address: form.address.value,
+          stream: form.stream ? form.stream.value : 'General',
           admission_date: form.admission_date.value
         });
         showToast('Student profile updated successfully', 'success');
@@ -288,9 +315,11 @@ function setupEventListeners() {
 async function updateNextRollPreview() {
   const classSelect = document.getElementById('modal-student-class-select');
   if (!classSelect || !classSelect.value) return;
+  const streamSelect = document.getElementById('modal-student-stream-select');
+  const stream = streamSelect ? streamSelect.value : 'General';
 
   try {
-    const res = await api.get('/students/next-roll', { class_id: classSelect.value });
+    const res = await api.get('/students/next-roll', { class_id: classSelect.value, stream });
     document.getElementById('next-roll-badge').textContent = `Next Roll: #${res.nextRoll}`;
     document.getElementById('next-fee-badge').textContent = `Class Fee: ৳${res.classFee}/mo`;
   } catch (err) {
@@ -306,12 +335,16 @@ async function openEditStudentModal(id) {
     form.student_id.value = st.id;
     form.roll_number.value = `#${st.roll_number}`;
     form.class_name.value = st.class_name;
+    if (form.stream) form.stream.value = st.stream || 'General';
+    if (form.primary_contact) form.primary_contact.value = st.primary_contact || 'primary';
     form.name.value = st.name || '';
     form.father_name.value = (st.father_name && st.father_name !== 'N/A' && st.father_name !== 'null') ? st.father_name : '';
     form.mother_name.value = (st.mother_name && st.mother_name !== 'N/A' && st.mother_name !== 'null') ? st.mother_name : '';
     form.phone.value = st.phone || '';
+    if (form.phone_secondary) form.phone_secondary.value = st.phone_secondary || '';
     form.address.value = (st.address && st.address !== 'N/A' && st.address !== 'null') ? st.address : '';
     form.admission_date.value = st.admission_date || '';
+    if (form.notes) form.notes.value = st.notes || '';
 
     openModal('modal-edit-student-dialog');
   } catch (err) {

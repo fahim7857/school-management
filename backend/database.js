@@ -141,20 +141,26 @@ export async function initDatabase() {
       name TEXT NOT NULL,
       class_number INTEGER NOT NULL,
       monthly_fee REAL NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      is_active INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
-      UNIQUE(academic_year_id, class_number)
+      UNIQUE(academic_year_id, stream, class_number)
     );
 
     CREATE TABLE IF NOT EXISTS students (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       academic_year_id INTEGER NOT NULL,
       class_id INTEGER NOT NULL,
-      roll_number INTEGER NOT NULL,
+      roll_number TEXT NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
       name TEXT NOT NULL,
       father_name TEXT,
       mother_name TEXT,
       phone TEXT NOT NULL,
+      phone_secondary TEXT,
+      primary_contact TEXT DEFAULT 'primary',
+      notes TEXT,
       address TEXT,
       admission_date TEXT NOT NULL,
       status TEXT DEFAULT 'Active',
@@ -244,7 +250,14 @@ export async function initDatabase() {
     CREATE TABLE IF NOT EXISTS teachers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
+      email TEXT,
       phone TEXT,
+      phone_secondary TEXT,
+      primary_contact TEXT DEFAULT 'primary',
+      fixed_salary REAL DEFAULT 0,
+      stream TEXT DEFAULT 'General',
+      status TEXT DEFAULT 'Active',
+      user_id TEXT,
       per_class_rate REAL DEFAULT 0,
       per_khata_rate REAL DEFAULT 0,
       per_guard_rate REAL DEFAULT 0,
@@ -278,6 +291,129 @@ export async function initDatabase() {
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS subjects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      academic_year_id INTEGER NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      class_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      code TEXT,
+      full_marks REAL DEFAULT 100,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
+      FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+      UNIQUE(class_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      teacher_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
+      class_id INTEGER NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      academic_year_id INTEGER NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      assigned_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+      FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+      FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+      FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
+      UNIQUE(subject_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_advances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      teacher_id INTEGER NOT NULL,
+      advance_date TEXT NOT NULL,
+      amount REAL NOT NULL,
+      recovered_amount REAL DEFAULT 0,
+      remaining_balance REAL NOT NULL,
+      status TEXT DEFAULT 'active',
+      voucher_no TEXT,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS teacher_salary_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      teacher_id INTEGER NOT NULL,
+      salary_month TEXT NOT NULL,
+      payment_date TEXT NOT NULL,
+      fixed_salary REAL NOT NULL,
+      advance_adjustment REAL DEFAULT 0,
+      net_paid REAL NOT NULL,
+      voucher_no TEXT,
+      note TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+      UNIQUE(teacher_id, salary_month)
+    );
+
+    CREATE TABLE IF NOT EXISTS examinations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      academic_year_id INTEGER NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      name TEXT NOT NULL,
+      exam_type TEXT NOT NULL,
+      exam_date TEXT,
+      is_active INTEGER DEFAULT 1,
+      is_finalized INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS exam_marks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      examination_id INTEGER NOT NULL,
+      student_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
+      class_id INTEGER NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      mt1_marks REAL,
+      mt2_marks REAL,
+      main_exam_marks REAL,
+      ct_marks REAL,
+      hifz_final_marks REAL,
+      calculated_score REAL,
+      grade TEXT,
+      grade_point REAL,
+      entered_by_teacher_id INTEGER,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (examination_id) REFERENCES examinations(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+      FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+      FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+      UNIQUE(examination_id, student_id, subject_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS student_exam_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      examination_id INTEGER NOT NULL,
+      student_id INTEGER NOT NULL,
+      class_id INTEGER NOT NULL,
+      stream TEXT NOT NULL DEFAULT 'General',
+      total_working_days INTEGER DEFAULT 0,
+      presence_days INTEGER DEFAULT 0,
+      absent_days INTEGER DEFAULT 0,
+      manners_discipline TEXT DEFAULT 'Good',
+      class_teacher_remarks TEXT,
+      principal_remarks TEXT,
+      obtained_gpa REAL,
+      total_marks REAL,
+      percentage REAL,
+      class_rank INTEGER,
+      status TEXT DEFAULT 'Draft',
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (examination_id) REFERENCES examinations(id) ON DELETE CASCADE,
+      FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
+      FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+      UNIQUE(examination_id, student_id)
+    );
   `);
 
   try {
@@ -286,19 +422,57 @@ export async function initDatabase() {
     // ignore if table doesn't exist yet
   }
 
-  try {
-    db.exec('ALTER TABLE staff ADD COLUMN address TEXT;');
-  } catch (e) {
-    // column may already exist
-  }
+  // Safe schema migrations
+  const migrations = [
+    "ALTER TABLE classes ADD COLUMN stream TEXT NOT NULL DEFAULT 'General';",
+    "ALTER TABLE classes ADD COLUMN is_active INTEGER DEFAULT 1;",
+    "ALTER TABLE teachers ADD COLUMN email TEXT;",
+    "ALTER TABLE teachers ADD COLUMN phone_secondary TEXT;",
+    "ALTER TABLE teachers ADD COLUMN primary_contact TEXT DEFAULT 'primary';",
+    "ALTER TABLE teachers ADD COLUMN fixed_salary REAL DEFAULT 0;",
+    "ALTER TABLE teachers ADD COLUMN stream TEXT DEFAULT 'General';",
+    "ALTER TABLE teachers ADD COLUMN status TEXT DEFAULT 'Active';",
+    "ALTER TABLE teachers ADD COLUMN user_id TEXT;",
+    "ALTER TABLE students ADD COLUMN stream TEXT NOT NULL DEFAULT 'General';",
+    "ALTER TABLE students ADD COLUMN phone_secondary TEXT;",
+    "ALTER TABLE students ADD COLUMN primary_contact TEXT DEFAULT 'primary';",
+    "ALTER TABLE students ADD COLUMN notes TEXT;",
+    "ALTER TABLE staff ADD COLUMN address TEXT;",
+    "ALTER TABLE staff ADD COLUMN work_post TEXT;",
+    "ALTER TABLE staff ADD COLUMN phone_secondary TEXT;",
+    "ALTER TABLE staff ADD COLUMN primary_contact TEXT DEFAULT 'primary';",
+    "ALTER TABLE staff ADD COLUMN emergency_contact TEXT;",
+    "ALTER TABLE staff ADD COLUMN optional_details TEXT;",
+    "ALTER TABLE examinations ADD COLUMN class_id INTEGER;",
+    "ALTER TABLE examinations ADD COLUMN start_date TEXT;",
+    "ALTER TABLE examinations ADD COLUMN end_date TEXT;",
+    "ALTER TABLE examinations ADD COLUMN weight_monthly REAL DEFAULT 30;",
+    "ALTER TABLE examinations ADD COLUMN weight_main REAL DEFAULT 70;",
+    "ALTER TABLE examinations ADD COLUMN is_published INTEGER DEFAULT 0;",
+    "ALTER TABLE exam_marks ADD COLUMN mt1 REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN mt2 REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN mt3 REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN mt4 REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN main_exam REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN final_exam REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN final_score REAL;",
+    "ALTER TABLE exam_marks ADD COLUMN is_absent INTEGER DEFAULT 0;",
+    "ALTER TABLE exam_marks ADD COLUMN remarks TEXT;",
+    "ALTER TABLE student_exam_results ADD COLUMN presence INTEGER DEFAULT 0;",
+    "ALTER TABLE student_exam_results ADD COLUMN absent INTEGER DEFAULT 0;",
+    "ALTER TABLE student_exam_results ADD COLUMN percentage_of_attendance REAL DEFAULT 0;"
+  ];
 
-  try {
-    db.exec('ALTER TABLE staff ADD COLUMN work_post TEXT;');
-  } catch (e) {
-    // column may already exist
+  for (const m of migrations) {
+    try {
+      db.exec(m);
+    } catch (e) {
+      // Column already exists or table not ready
+    }
   }
 
   seedDefaultDataIfEmpty();
+  seedAcademicDefaults();
 }
 
 export function getMonthsList() {
@@ -519,20 +693,130 @@ export function seedDefaultDataIfEmpty(force = false) {
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('currency_symbol', '৳');
 }
 
-export function getNextRollNumber(academicYearId, classId) {
-  const cls = db.prepare('SELECT class_number FROM classes WHERE id = ?').get(classId);
+export function seedAcademicDefaults() {
+  const ay = db.prepare('SELECT id FROM academic_years WHERE year = 2026').get();
+  if (!ay) return;
+
+  // 1. Ensure existing classes and students have stream
+  try {
+    db.prepare("UPDATE classes SET stream = 'General' WHERE stream IS NULL OR stream = ''").run();
+    db.prepare("UPDATE students SET stream = 'General' WHERE stream IS NULL OR stream = ''").run();
+    db.prepare("UPDATE teachers SET stream = 'General' WHERE stream IS NULL OR stream = ''").run();
+  } catch (e) { }
+
+  // 2. Seed Hifz Classes if none exist
+  const hifzCount = db.prepare("SELECT COUNT(*) as count FROM classes WHERE stream = 'Hifz'").get();
+  if (!hifzCount || hifzCount.count === 0) {
+    const hifzClasses = [
+      { name: 'Hifz Class 1', class_number: 1, fee: 1000 },
+      { name: 'Hifz Class 2', class_number: 2, fee: 1200 },
+      { name: 'Hifz Class 3', class_number: 3, fee: 1500 }
+    ];
+    for (const hc of hifzClasses) {
+      try {
+        db.prepare(`
+          INSERT INTO classes (academic_year_id, name, class_number, monthly_fee, stream, is_active)
+          VALUES (?, ?, ?, ?, 'Hifz', 1)
+        `).run(ay.id, hc.name, hc.class_number, hc.fee);
+      } catch (e) { }
+    }
+  }
+
+  // 3. Seed Subjects for General and Hifz classes
+  const allClasses = db.prepare('SELECT * FROM classes WHERE academic_year_id = ?').all(ay.id);
+  const subInsert = db.prepare(`
+    INSERT OR IGNORE INTO subjects (academic_year_id, stream, class_id, name, code, full_marks, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, 1)
+  `);
+
+  const generalSubjects = [
+    { name: 'Bangla', code: 'BAN-101' },
+    { name: 'English', code: 'ENG-102' },
+    { name: 'Mathematics', code: 'MATH-103' },
+    { name: 'Science', code: 'SCI-104' },
+    { name: 'Social Science', code: 'SOC-105' },
+    { name: 'Religion & Moral Education', code: 'REL-106' }
+  ];
+
+  const hifzSubjects = [
+    { name: 'Hifz (Quran Memorization)', code: 'HIFZ-01' },
+    { name: 'Tajweed', code: 'TAJ-02' },
+    { name: 'Arabic Language', code: 'ARB-03' },
+    { name: 'Islamic Studies (Fiqh & Akhlaq)', code: 'ISL-04' }
+  ];
+
+  for (const cls of allClasses) {
+    const list = cls.stream === 'Hifz' ? hifzSubjects : generalSubjects;
+    for (const s of list) {
+      try {
+        subInsert.run(ay.id, cls.stream || 'General', cls.id, s.name, s.code, 100);
+      } catch (e) { }
+    }
+  }
+
+  // 4. Seed default Examinations if none exist
+  const examCount = db.prepare('SELECT COUNT(*) as count FROM examinations').get();
+  if (!examCount || examCount.count === 0) {
+    const examInsert = db.prepare(`
+      INSERT INTO examinations (academic_year_id, stream, name, exam_type, exam_date, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `);
+
+    try {
+      examInsert.run(ay.id, 'General', 'Half-Yearly Examination – 2026', 'half_yearly', '2026-06-15');
+      examInsert.run(ay.id, 'General', 'Yearly / Final Examination – 2026', 'yearly', '2026-11-20');
+      examInsert.run(ay.id, 'Hifz', 'Half-Yearly Examination – 2026', 'ct_final', '2026-06-15');
+      examInsert.run(ay.id, 'Hifz', 'Yearly / Final Examination – 2026', 'ct_final', '2026-11-20');
+    } catch (e) { }
+  }
+
+  // 5. Update settings center_name to institutional name
+  try {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('center_name', 'Aleya Begum Modern School, Kushtia')").run();
+  } catch (e) { }
+}
+
+export function getNextRollNumber(academicYearId, classId, stream = 'General') {
+  const cls = db.prepare('SELECT class_number, stream FROM classes WHERE id = ?').get(classId);
   if (!cls) {
     throw new Error('Class not found');
   }
 
-  const row = db.prepare(`
-    SELECT MAX(roll_number) as max_roll
+  const effectiveStream = cls.stream || stream || 'General';
+  const isHifz = effectiveStream.toLowerCase() === 'hifz';
+
+  const rows = db.prepare(`
+    SELECT roll_number
     FROM students
     WHERE academic_year_id = ? AND class_id = ?
-  `).get(academicYearId, classId);
+  `).all(academicYearId, classId);
 
-  if (!row || row.max_roll === null) {
-    return cls.class_number * 100 + 1;
+  let maxSeq = 0;
+  for (const r of rows) {
+    const rStr = String(r.roll_number || '').trim();
+    if (isHifz) {
+      if (rStr.startsWith('H') || rStr.startsWith('h')) {
+        const numPart = parseInt(rStr.replace(/^[Hh]/, ''), 10);
+        if (!isNaN(numPart)) {
+          const seq = numPart % 100;
+          if (seq > maxSeq) maxSeq = seq;
+        }
+      }
+    } else {
+      const numPart = parseInt(rStr, 10);
+      if (!isNaN(numPart)) {
+        const seq = numPart % 100;
+        if (seq > maxSeq) maxSeq = seq;
+      }
+    }
   }
-  return row.max_roll + 1;
+
+  const nextSeq = maxSeq + 1;
+  const baseRollNum = cls.class_number * 100 + nextSeq;
+
+  if (isHifz) {
+    return `H${baseRollNum}`;
+  }
+  return baseRollNum;
 }
+

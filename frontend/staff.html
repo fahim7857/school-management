@@ -46,6 +46,18 @@
           <span class="material-symbols-outlined">badge</span>
           Teachers
         </a>
+        <a href="academic.html" class="nav-link">
+          <span class="material-symbols-outlined">menu_book</span>
+          Academic & Subjects
+        </a>
+        <a href="examinations.html" class="nav-link">
+          <span class="material-symbols-outlined">quiz</span>
+          Examinations
+        </a>
+        <a href="result-cards.html" class="nav-link">
+          <span class="material-symbols-outlined">workspace_premium</span>
+          Result Cards
+        </a>
         <a href="staff.html" class="nav-link active">
           <span class="material-symbols-outlined">assignment_ind</span>
           Staff
@@ -252,18 +264,42 @@
 
           <div class="form-group">
             <label class="form-label" for="staffNameInput">Full Name *</label>
-            <input type="text" id="staffNameInput" class="form-control" placeholder="e.g. Rahim" required>
+            <input type="text" id="staffNameInput" class="form-control" placeholder="e.g. Rahim Ahmed" required>
           </div>
 
           <div class="form-row">
             <div class="form-group" style="flex: 1;">
-              <label class="form-label" for="staffPhoneInput">Mobile Number</label>
-              <input type="tel" id="staffPhoneInput" class="form-control" placeholder="e.g. 01712-345678">
+              <label class="form-label" for="staffPhoneInput">Primary Mobile Number *</label>
+              <input type="tel" id="staffPhoneInput" class="form-control" placeholder="e.g. 01712-345678" required>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="staffPhoneSecondaryInput">Secondary Mobile Number</label>
+              <input type="tel" id="staffPhoneSecondaryInput" class="form-control" placeholder="e.g. 01812-345678">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="staffPrimaryContactSelect">Primary Contact Preference</label>
+              <select id="staffPrimaryContactSelect" class="form-control">
+                <option value="primary">Primary Mobile</option>
+                <option value="secondary">Secondary Mobile</option>
+              </select>
             </div>
             <div class="form-group" style="flex: 1;">
               <label class="form-label" for="staffWorkPostInput">Work Post / Position *</label>
-              <input type="text" id="staffWorkPostInput" class="form-control" placeholder="e.g. Office Assistant"
-                required>
+              <input type="text" id="staffWorkPostInput" class="form-control" placeholder="e.g. Office Assistant" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="staffEmergencyContactInput">Emergency Contact Number / Person</label>
+              <input type="text" id="staffEmergencyContactInput" class="form-control" placeholder="e.g. 01912-345678 (Brother)">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="staffFixedSalaryInput">Fixed Monthly Salary (৳) *</label>
+              <input type="number" id="staffFixedSalaryInput" class="form-control" placeholder="e.g. 10000" min="0" step="any" required>
             </div>
           </div>
 
@@ -273,12 +309,8 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="staffFixedSalaryInput">Fixed Monthly Salary (৳) *</label>
-            <input type="number" id="staffFixedSalaryInput" class="form-control" placeholder="e.g. 10000" min="0"
-              step="any" required>
-            <small style="color: #64748b; font-size: 0.74rem; margin-top: 0.2rem; display: block;">
-              Predefined baseline salary. Advances and payments of ANY amount can still be issued.
-            </small>
+            <label class="form-label" for="staffOptionalDetailsInput">Optional Details / Notes</label>
+            <textarea id="staffOptionalDetailsInput" class="form-control" rows="2" placeholder="Additional details, shift timings, or special duties..."></textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -291,7 +323,7 @@
 
   <!-- Modal: Edit Staff -->
   <div id="staffEditModal" class="modal-overlay">
-    <div class="modal-dialog" style="max-width: 520px;">
+    <div class="modal-dialog" style="max-width: 540px;">
       <div class="modal-header">
         <h3 class="modal-title">Edit Staff Profile</h3>
         <button type="button" class="modal-close" id="closeStaffEditModalBtn" aria-label="Close modal">&times;</button>
@@ -310,12 +342,37 @@
 
           <div class="form-row">
             <div class="form-group" style="flex: 1;">
-              <label class="form-label" for="editStaffPhoneInput">Mobile Number</label>
-              <input type="tel" id="editStaffPhoneInput" class="form-control">
+              <label class="form-label" for="editStaffPhoneInput">Primary Mobile Number *</label>
+              <input type="tel" id="editStaffPhoneInput" class="form-control" required>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="editStaffPhoneSecondaryInput">Secondary Mobile Number</label>
+              <input type="tel" id="editStaffPhoneSecondaryInput" class="form-control">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="editStaffPrimaryContactSelect">Primary Contact Preference</label>
+              <select id="editStaffPrimaryContactSelect" class="form-control">
+                <option value="primary">Primary Mobile</option>
+                <option value="secondary">Secondary Mobile</option>
+              </select>
             </div>
             <div class="form-group" style="flex: 1;">
               <label class="form-label" for="editStaffWorkPostInput">Work Post / Position *</label>
               <input type="text" id="editStaffWorkPostInput" class="form-control" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="editStaffEmergencyContactInput">Emergency Contact Number / Person</label>
+              <input type="text" id="editStaffEmergencyContactInput" class="form-control">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="editStaffFixedSalaryInput">Fixed Monthly Salary (৳) *</label>
+              <input type="number" id="editStaffFixedSalaryInput" class="form-control" min="0" step="any" required>
             </div>
           </div>
 
@@ -325,8 +382,8 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="editStaffFixedSalaryInput">Fixed Monthly Salary (৳) *</label>
-            <input type="number" id="editStaffFixedSalaryInput" class="form-control" min="0" step="any" required>
+            <label class="form-label" for="editStaffOptionalDetailsInput">Optional Details / Notes</label>
+            <textarea id="editStaffOptionalDetailsInput" class="form-control" rows="2"></textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -426,9 +483,12 @@
           </div>
         </div>
 
-        <div style="font-size: 0.8rem; color: #475569; display: flex; gap: 1.5rem; flex-wrap: wrap;">
-          <span>Mobile: <strong id="detailStaffPhone" style="color: #0f172a;">-</strong></span>
-          <span>Address: <strong id="detailStaffAddress" style="color: #0f172a;">-</strong></span>
+        <div style="font-size: 0.8rem; color: #475569; display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; background: #f8fafc; padding: 0.75rem; border-radius: 6px; border: 1px solid #e2e8f0;">
+          <div>Primary Mobile: <strong id="detailStaffPhone" style="color: #0f172a;">-</strong></div>
+          <div>Secondary Mobile: <strong id="detailStaffPhoneSecondary" style="color: #0f172a;">-</strong></div>
+          <div>Emergency Contact: <strong id="detailStaffEmergency" style="color: #0f172a;">-</strong></div>
+          <div>Address: <strong id="detailStaffAddress" style="color: #0f172a;">-</strong></div>
+          <div style="grid-column: span 2;">Optional Details: <span id="detailStaffOptional" style="color: #0f172a; font-weight: 500;">-</span></div>
         </div>
 
         <!-- Payment History Table -->

@@ -578,8 +578,12 @@ async function handleAddStaff(e) {
 
   const name = document.getElementById('staffNameInput').value.trim();
   const phone = document.getElementById('staffPhoneInput').value.trim();
+  const phone_secondary = (document.getElementById('staffPhoneSecondaryInput')?.value || '').trim();
+  const primary_contact = document.getElementById('staffPrimaryContactSelect')?.value || 'primary';
   const address = document.getElementById('staffAddressInput').value.trim();
   const work_post = document.getElementById('staffWorkPostInput').value.trim();
+  const emergency_contact = (document.getElementById('staffEmergencyContactInput')?.value || '').trim();
+  const optional_details = (document.getElementById('staffOptionalDetailsInput')?.value || '').trim();
   const fixed_salary = parseFloat(document.getElementById('staffFixedSalaryInput').value) || 0;
 
   if (!name) {
@@ -595,9 +599,13 @@ async function handleAddStaff(e) {
     const res = await apiClient.post('/staff', {
       name,
       phone,
+      phone_secondary,
+      primary_contact,
       address,
       work_post,
-      fixed_salary
+      fixed_salary,
+      emergency_contact,
+      optional_details
     });
 
     if (res && res.success) {
@@ -622,8 +630,20 @@ function openEditModal(staffId) {
   document.getElementById('editStaffId').value = staff.id;
   document.getElementById('editStaffNameInput').value = staff.name || '';
   document.getElementById('editStaffPhoneInput').value = staff.phone || '';
+  if (document.getElementById('editStaffPhoneSecondaryInput')) {
+    document.getElementById('editStaffPhoneSecondaryInput').value = staff.phone_secondary || '';
+  }
+  if (document.getElementById('editStaffPrimaryContactSelect')) {
+    document.getElementById('editStaffPrimaryContactSelect').value = staff.primary_contact || 'primary';
+  }
   document.getElementById('editStaffAddressInput').value = staff.address || '';
   document.getElementById('editStaffWorkPostInput').value = staff.work_post || '';
+  if (document.getElementById('editStaffEmergencyContactInput')) {
+    document.getElementById('editStaffEmergencyContactInput').value = staff.emergency_contact || '';
+  }
+  if (document.getElementById('editStaffOptionalDetailsInput')) {
+    document.getElementById('editStaffOptionalDetailsInput').value = staff.optional_details || '';
+  }
   document.getElementById('editStaffFixedSalaryInput').value = staff.fixed_salary !== undefined ? staff.fixed_salary : 0;
 
   showModal('staffEditModal');
@@ -636,8 +656,12 @@ async function handleEditStaff(e) {
   const id = parseInt(document.getElementById('editStaffId').value, 10);
   const name = document.getElementById('editStaffNameInput').value.trim();
   const phone = document.getElementById('editStaffPhoneInput').value.trim();
+  const phone_secondary = (document.getElementById('editStaffPhoneSecondaryInput')?.value || '').trim();
+  const primary_contact = document.getElementById('editStaffPrimaryContactSelect')?.value || 'primary';
   const address = document.getElementById('editStaffAddressInput').value.trim();
   const work_post = document.getElementById('editStaffWorkPostInput').value.trim();
+  const emergency_contact = (document.getElementById('editStaffEmergencyContactInput')?.value || '').trim();
+  const optional_details = (document.getElementById('editStaffOptionalDetailsInput')?.value || '').trim();
   const fixed_salary = parseFloat(document.getElementById('editStaffFixedSalaryInput').value) || 0;
 
   if (!name) {
@@ -649,9 +673,13 @@ async function handleEditStaff(e) {
     const res = await apiClient.put(`/staff/${id}`, {
       name,
       phone,
+      phone_secondary,
+      primary_contact,
       address,
       work_post,
-      fixed_salary
+      fixed_salary,
+      emergency_contact,
+      optional_details
     });
 
     if (res && res.success) {
@@ -765,8 +793,17 @@ async function openStaffDetailModal(staffId) {
     document.getElementById('detailWorkPost').textContent = s.work_post || 'Staff';
     document.getElementById('detailFixedSalary').textContent = `৳${(s.fixed_salary || 0).toLocaleString()}`;
     document.getElementById('detailTotalPaid').textContent = `৳${(s.total_paid || 0).toLocaleString()}`;
-    document.getElementById('detailStaffPhone').textContent = s.phone || 'N/A';
+    const primaryBadge = s.primary_contact === 'secondary' ? '' : ' <span style="font-size: 0.68rem; background: #dbeafe; color: #1e40af; padding: 1px 5px; border-radius: 4px;">Primary</span>';
+    const secondaryBadge = s.primary_contact === 'secondary' ? ' <span style="font-size: 0.68rem; background: #dbeafe; color: #1e40af; padding: 1px 5px; border-radius: 4px;">Primary</span>' : '';
+
+    document.getElementById('detailStaffPhone').innerHTML = (s.phone ? escapeHtml(s.phone) : 'N/A') + (s.phone ? primaryBadge : '');
+    const secEl = document.getElementById('detailStaffPhoneSecondary');
+    if (secEl) secEl.innerHTML = (s.phone_secondary ? escapeHtml(s.phone_secondary) : 'N/A') + (s.phone_secondary ? secondaryBadge : '');
+    const emEl = document.getElementById('detailStaffEmergency');
+    if (emEl) emEl.textContent = s.emergency_contact || 'N/A';
     document.getElementById('detailStaffAddress').textContent = s.address || 'N/A';
+    const optEl = document.getElementById('detailStaffOptional');
+    if (optEl) optEl.textContent = s.optional_details || 'None';
 
     const tbody = document.getElementById('detailPaymentHistoryBody');
     const payments = s.payments || [];

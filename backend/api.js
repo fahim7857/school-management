@@ -486,13 +486,24 @@ apiRouter.delete('/academic-years/:id', requireDeletePermission, (req, res) => {
 apiRouter.get('/classes', (req, res) => {
   try {
     const academicYearId = resolveAcademicYear(req.query.academic_year_id).id;
-    const classes = db.prepare(`
+    const stream = req.query.stream;
+
+    let sql = `
       SELECT c.*, 
         (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) as student_count
       FROM classes c
       WHERE c.academic_year_id = ?
-      ORDER BY c.class_number ASC
-    `).all(academicYearId);
+    `;
+    const params = [academicYearId];
+
+    if (stream) {
+      sql += ' AND LOWER(c.stream) = LOWER(?)';
+      params.push(stream);
+    }
+
+    sql += ' ORDER BY c.stream ASC, c.class_number ASC';
+
+    const classes = db.prepare(sql).all(...params);
     res.json({ success: true, data: classes });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -501,21 +512,22 @@ apiRouter.get('/classes', (req, res) => {
 
 apiRouter.post('/classes', (req, res) => {
   try {
-    const { academic_year_id, name, class_number, monthly_fee } = req.body;
+    const { academic_year_id, name, class_number, monthly_fee, stream } = req.body;
     const ayId = resolveAcademicYear(academic_year_id).id;
     const cNum = parseInt(class_number, 10);
     const fee = parseFloat(monthly_fee);
+    const classStream = (stream && stream.toLowerCase() === 'hifz') ? 'Hifz' : 'General';
 
     if (!name || isNaN(cNum) || isNaN(fee) || fee <= 0) {
       return res.status(400).json({ success: false, error: 'Valid name, class number, and positive monthly fee required' });
     }
 
     const insert = db.prepare(`
-      INSERT INTO classes (academic_year_id, name, class_number, monthly_fee)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO classes (academic_year_id, name, class_number, monthly_fee, stream, is_active)
+      VALUES (?, ?, ?, ?, ?, 1)
     `);
-    const resRow = insert.run(ayId, name, cNum, fee);
-    res.json({ success: true, data: { id: Number(resRow.lastInsertRowid) } });
+    const resRow = insert.run(ayId, name.trim(), cNum, fee, classStream);
+    res.json({ success: true, data: { id: Number(resRow.lastInsertRowid), stream: classStream } });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -524,9 +536,9 @@ apiRouter.post('/classes', (req, res) => {
 apiRouter.put('/classes/:id', (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { name, monthly_fee } = req.body;
-    const fee = parseFloat(monthly_fee);
-    if (isNaN(fee) || fee <= 0) {
+    const { name, monthly_fee, stream, is_active } = req.body;
+    const fee = monthly_fee !== undefined ? parseFloat(monthly_fee) : null;
+    if (fee !== null && (isNaN(fee) || fee <= 0)) {
       return res.status(400).json({ success: false, error: 'Monthly fee must be positive' });
     }
 
@@ -535,8 +547,13 @@ apiRouter.put('/classes/:id', (req, res) => {
       return res.status(404).json({ success: false, error: 'Class not found' });
     }
     const updatedName = (name && name.trim()) ? name.trim() : currentClass.name;
+    const updatedFee = fee !== null ? fee : currentClass.monthly_fee;
+    const updatedStream = stream ? (stream.toLowerCase() === 'hifz' ? 'Hifz' : 'General') : (currentClass.stream || 'General');
+    const updatedActive = is_active !== undefined ? (is_active ? 1 : 0) : (currentClass.is_active ?? 1);
 
-    db.prepare('UPDATE classes SET name = ?, monthly_fee = ? WHERE id = ?').run(updatedName, fee, id);
+    db.prepare('UPDATE classes SET name = ?, monthly_fee = ?, stream = ?, is_active = ? WHERE id = ?').run(
+      updatedName, updatedFee, updatedStream, updatedActive, id
+    );
     res.json({ success: true, message: 'Class updated' });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
@@ -618,19 +635,22 @@ apiRouter.get('/students/next-roll', (req, res) => {
   try {
     const classId = parseInt(req.query.class_id, 10);
     const ayId = resolveAcademicYear(req.query.academic_year_id).id;
+    const stream = req.query.stream;
 
     if (isNaN(classId)) {
       return res.status(400).json({ success: false, error: 'class_id is required' });
     }
 
-    const nextRoll = getNextRollNumber(ayId, classId);
     const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
+    const effectiveStream = stream || cls?.stream || 'General';
+    const nextRoll = getNextRollNumber(ayId, classId, effectiveStream);
 
     res.json({
       success: true,
       nextRoll,
       classFee: cls?.monthly_fee ?? 1000,
-      className: cls?.name ?? ''
+      className: cls?.name ?? '',
+      stream: effectiveStream
     });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
@@ -641,6 +661,7 @@ apiRouter.get('/students', (req, res) => {
   try {
     const ayId = resolveAcademicYear(req.query.academic_year_id).id;
     const classFilter = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+    const streamFilter = req.query.stream;
     const statusFilter = req.query.status || 'all';
     const paymentFilter = req.query.payment_status || 'all';
     const search = (req.query.search || '').trim().toLowerCase();
@@ -666,6 +687,11 @@ apiRouter.get('/students', (req, res) => {
       params.push(classFilter);
     }
 
+    if (streamFilter && streamFilter !== 'all') {
+      query += ' AND LOWER(s.stream) = LOWER(?)';
+      params.push(streamFilter);
+    }
+
     if (statusFilter !== 'all') {
       query += ' AND s.status = ?';
       params.push(statusFilter);
@@ -688,6 +714,7 @@ apiRouter.get('/students', (req, res) => {
         LOWER(s.name) LIKE ? OR 
         CAST(s.roll_number AS TEXT) LIKE ? OR 
         s.phone LIKE ? OR 
+        (s.phone_secondary IS NOT NULL AND s.phone_secondary LIKE ?) OR 
         LOWER(s.father_name) LIKE ? OR
         LOWER(s.mother_name) LIKE ? OR
         ('stu-' || ay.year || '-' || substr('0000' || s.roll_number, -4)) LIKE ? OR
@@ -695,7 +722,7 @@ apiRouter.get('/students', (req, res) => {
         ('stu-' || s.roll_number) LIKE ?
       `;
       const wild = `%${cleanSearch}%`;
-      params.push(wild, wild, wild, wild, wild, wild, wild, wild);
+      params.push(wild, wild, wild, wild, wild, wild, wild, wild, wild);
 
       if (searchRoll !== null) {
         query += ` OR s.roll_number = ?`;
@@ -704,23 +731,25 @@ apiRouter.get('/students', (req, res) => {
       query += ` )`;
     }
 
-    query += ' ORDER BY c.class_number ASC, s.roll_number ASC';
+    query += ' ORDER BY c.stream ASC, c.class_number ASC, s.roll_number ASC';
 
     const rows = db.prepare(query).all(...params);
 
     // Process payment filter and format response
     const results = rows.map(s => {
       const isPaid = Boolean(s.is_paid_current_month);
+      const primaryContact = s.primary_contact || 'primary';
+      const effectivePhone = (primaryContact === 'secondary' && s.phone_secondary) ? s.phone_secondary : s.phone;
       return {
         ...s,
         display_roll: `#${s.roll_number}`,
-        current_month_status: isPaid ? 'Paid' : 'Due'
+        current_month_status: isPaid ? 'Paid' : 'Due',
+        primary_phone: effectivePhone
       };
     }).filter(s => {
       if (paymentFilter === 'all') return true;
       if (paymentFilter === 'Paid') return s.current_month_status === 'Paid';
       if (paymentFilter === 'Due') return s.current_month_status === 'Due';
-      return true;
     });
 
     res.json({
@@ -933,8 +962,12 @@ apiRouter.post('/students', (req, res) => {
       father_name,
       mother_name,
       phone,
+      phone_secondary,
+      primary_contact,
+      notes,
       address,
       class_id,
+      stream,
       admission_date,
       academic_year_id,
       photo_url
@@ -946,26 +979,36 @@ apiRouter.post('/students', (req, res) => {
 
     const ayId = resolveAcademicYear(academic_year_id).id;
     const classId = parseInt(class_id, 10);
+    const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
+    if (!cls) {
+      return res.status(400).json({ success: false, error: 'Class not found' });
+    }
+
+    const effectiveStream = stream ? (stream.toLowerCase() === 'hifz' ? 'Hifz' : 'General') : (cls.stream || 'General');
     const admDate = admission_date || getDhakaDate();
 
     // Auto generate next roll inside transaction
-    const nextRoll = getNextRollNumber(ayId, classId);
+    const nextRoll = getNextRollNumber(ayId, classId, effectiveStream);
 
     const insert = db.prepare(`
       INSERT INTO students (
-        academic_year_id, class_id, roll_number, name, father_name, mother_name,
-        phone, address, admission_date, status, photo_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)
+        academic_year_id, class_id, roll_number, stream, name, father_name, mother_name,
+        phone, phone_secondary, primary_contact, notes, address, admission_date, status, photo_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?)
     `);
 
     const result = insert.run(
       ayId,
       classId,
-      nextRoll,
+      String(nextRoll),
+      effectiveStream,
       name.trim(),
       father_name && father_name.trim() ? father_name.trim() : null,
       mother_name && mother_name.trim() ? mother_name.trim() : null,
       phone.trim(),
+      phone_secondary && phone_secondary.trim() ? phone_secondary.trim() : null,
+      primary_contact === 'secondary' ? 'secondary' : 'primary',
+      notes && notes.trim() ? notes.trim() : null,
       address && address.trim() ? address.trim() : null,
       admDate,
       photo_url && photo_url.trim() ? photo_url.trim() : null
@@ -977,6 +1020,7 @@ apiRouter.post('/students', (req, res) => {
         id: Number(result.lastInsertRowid),
         roll_number: nextRoll,
         display_roll: `#${nextRoll}`,
+        stream: effectiveStream,
         name
       }
     });
@@ -997,7 +1041,21 @@ apiRouter.put('/students/:id', (req, res) => {
       return res.status(404).json({ success: false, error: 'Student not found' });
     }
 
-    const { name, father_name, mother_name, phone, address, status, admission_date, photo_url, class_id } = req.body;
+    const {
+      name,
+      father_name,
+      mother_name,
+      phone,
+      phone_secondary,
+      primary_contact,
+      notes,
+      address,
+      status,
+      admission_date,
+      photo_url,
+      class_id,
+      stream
+    } = req.body;
 
     // Process name: must not be empty if provided
     let updatedName = current.name;
@@ -1017,6 +1075,23 @@ apiRouter.put('/students/:id', (req, res) => {
         return res.status(400).json({ success: false, error: 'Phone number cannot be empty' });
       }
       updatedPhone = trimmed;
+    }
+
+    let updatedPhoneSecondary = current.phone_secondary;
+    if (phone_secondary !== undefined) {
+      const trimmed = (phone_secondary || '').trim();
+      updatedPhoneSecondary = trimmed || null;
+    }
+
+    let updatedPrimaryContact = current.primary_contact || 'primary';
+    if (primary_contact !== undefined) {
+      updatedPrimaryContact = primary_contact === 'secondary' ? 'secondary' : 'primary';
+    }
+
+    let updatedNotes = current.notes;
+    if (notes !== undefined) {
+      const trimmed = (notes || '').trim();
+      updatedNotes = trimmed || null;
     }
 
     // Process father_name: if provided, update to trimmed string or null if empty
@@ -1052,6 +1127,11 @@ apiRouter.put('/students/:id', (req, res) => {
       }
     }
 
+    let updatedStream = current.stream || 'General';
+    if (stream !== undefined && stream) {
+      updatedStream = stream.toLowerCase() === 'hifz' ? 'Hifz' : 'General';
+    }
+
     // Process status: Active or Inactive
     let updatedStatus = current.status;
     if (status !== undefined && status) {
@@ -1077,11 +1157,15 @@ apiRouter.put('/students/:id', (req, res) => {
         father_name = ?,
         mother_name = ?,
         phone = ?,
+        phone_secondary = ?,
+        primary_contact = ?,
+        notes = ?,
         address = ?,
         status = ?,
         admission_date = ?,
         photo_url = ?,
         class_id = ?,
+        stream = ?,
         updated_at = datetime('now', 'localtime')
       WHERE id = ?
     `).run(
@@ -1089,11 +1173,15 @@ apiRouter.put('/students/:id', (req, res) => {
       updatedFather,
       updatedMother,
       updatedPhone,
+      updatedPhoneSecondary,
+      updatedPrimaryContact,
+      updatedNotes,
       updatedAddress,
       updatedStatus,
       updatedAdmDate,
       updatedPhoto,
       updatedClassId,
+      updatedStream,
       id
     );
 
@@ -2683,43 +2771,115 @@ apiRouter.post('/seed', requireSuperAdmin, (req, res) => {
 });
 
 // ----------------------------------------------------
-// TEACHERS MANAGEMENT API
+// ACADEMIC & EXAMINATION HELPER FUNCTIONS
+// ----------------------------------------------------
+
+/**
+ * Calculate final subject score according to stream and exam type.
+ * General: 30% Monthly Test average + 70% Main Exam, rounded to nearest 0.5.
+ * Hifz: Direct sum of CT marks and Final Exam marks (capped at 100).
+ */
+function calculateSubjectScore(stream, examType, marks) {
+  if (stream === 'Hifz') {
+    const ct = (marks.ct_marks !== null && marks.ct_marks !== undefined && marks.ct_marks !== '') ? Number(marks.ct_marks) : 0;
+    const final = (marks.final_exam !== null && marks.final_exam !== undefined && marks.final_exam !== '') ? Number(marks.final_exam) : 0;
+    const raw = ct + final;
+    return Math.min(100, Math.round(raw * 2) / 2);
+  }
+
+  // General Stream
+  let mt1 = null;
+  let mt2 = null;
+  let mainExam = null;
+
+  if (examType === 'final') {
+    mt1 = (marks.mt3 !== null && marks.mt3 !== undefined && marks.mt3 !== '') ? Number(marks.mt3) : null;
+    mt2 = (marks.mt4 !== null && marks.mt4 !== undefined && marks.mt4 !== '') ? Number(marks.mt4) : null;
+    mainExam = (marks.final_exam !== null && marks.final_exam !== undefined && marks.final_exam !== '') ? Number(marks.final_exam) : null;
+  } else {
+    // Default to Half-Yearly
+    mt1 = (marks.mt1 !== null && marks.mt1 !== undefined && marks.mt1 !== '') ? Number(marks.mt1) : null;
+    mt2 = (marks.mt2 !== null && marks.mt2 !== undefined && marks.mt2 !== '') ? Number(marks.mt2) : null;
+    mainExam = (marks.main_exam !== null && marks.main_exam !== undefined && marks.main_exam !== '') ? Number(marks.main_exam) : null;
+  }
+
+  let mtCount = 0;
+  let mtSum = 0;
+  if (mt1 !== null && !isNaN(mt1)) { mtSum += mt1; mtCount++; }
+  if (mt2 !== null && !isNaN(mt2)) { mtSum += mt2; mtCount++; }
+
+  const mtAvg = mtCount > 0 ? (mtSum / mtCount) : 0;
+  const mtComponent = (mtAvg * 30) / 100;
+  const mainComponent = (mainExam !== null && !isNaN(mainExam)) ? (mainExam * 70) / 100 : 0;
+
+  const rawTotal = mtComponent + mainComponent;
+  // Nearest 0.5 rounding: Math.round(score * 2) / 2
+  return Math.min(100, Math.round(rawTotal * 2) / 2);
+}
+
+/**
+ * Standard ABMS grading scale:
+ * 90-100: A+ (5.00) Excellent
+ * 80-89:  A  (4.50) Very Good
+ * 70-79:  B+ (4.00) Good
+ * 60-69:  B  (3.00) Satisfactory
+ * 50-59:  C  (2.00) Poor
+ * 40-49:  D  (1.00) Very Poor
+ * 0-39:   F  (0.00) Fail
+ */
+function getGradeAndGpa(score) {
+  const s = Math.round(score * 2) / 2;
+  if (s >= 90) return { grade: 'A+', gpa: 5.00, remarks: 'Excellent' };
+  if (s >= 80) return { grade: 'A',  gpa: 4.50, remarks: 'Very Good' };
+  if (s >= 70) return { grade: 'B+', gpa: 4.00, remarks: 'Good' };
+  if (s >= 60) return { grade: 'B',  gpa: 3.00, remarks: 'Satisfactory' };
+  if (s >= 50) return { grade: 'C',  gpa: 2.00, remarks: 'Poor' };
+  if (s >= 40) return { grade: 'D',  gpa: 1.00, remarks: 'Very Poor' };
+  return { grade: 'F', gpa: 0.00, remarks: 'Fail' };
+}
+
+// ----------------------------------------------------
+// TEACHERS MANAGEMENT API (FIXED SALARY & ADVANCES)
 // ----------------------------------------------------
 apiRouter.get('/teachers', (req, res) => {
   try {
     const teachers = db.prepare('SELECT * FROM teachers ORDER BY name ASC').all();
 
     const results = teachers.map(t => {
-      const earnedRow = db.prepare(`
-        SELECT COALESCE(SUM(daily_total), 0) as total_earned,
-               COALESCE(SUM(classes_taken), 0) as total_classes,
-               COALESCE(SUM(khatas_checked), 0) as total_khatas,
-               COALESCE(SUM(guard_duties), 0) as total_guards,
-               COALESCE(SUM(class_earnings), 0) as class_earnings,
-               COALESCE(SUM(khata_earnings), 0) as khata_earnings,
-               COALESCE(SUM(guard_earnings), 0) as guard_earnings
-        FROM teacher_activities WHERE teacher_id = ?
-      `).get(t.id);
+      // Assignments
+      const assignments = db.prepare(`
+        SELECT ta.id as assignment_id, ta.subject_id, s.name as subject_name, s.code as subject_code,
+               c.id as class_id, c.name as class_name, c.stream, c.class_number
+        FROM teacher_assignments ta
+        JOIN subjects s ON ta.subject_id = s.id
+        JOIN classes c ON s.class_id = c.id
+        WHERE ta.teacher_id = ? AND ta.is_active = 1
+        ORDER BY c.stream ASC, c.class_number ASC, s.name ASC
+      `).all(t.id);
 
-      const paidRow = db.prepare(`
-        SELECT COALESCE(SUM(amount), 0) as total_paid
-        FROM teacher_payments WHERE teacher_id = ?
-      `).get(t.id);
+      // Advances
+      const advRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(t.id);
+      const totalAdvance = advRow ? advRow.total : 0;
 
-      const totalEarned = earnedRow.total_earned || 0;
-      const totalPaid = paidRow.total_paid || 0;
-      const currentPayable = totalEarned - totalPaid;
+      // Deducted from salary payments
+      const dedRow = db.prepare('SELECT COALESCE(SUM(advance_deducted), 0) as total, COALESCE(SUM(net_paid), 0) as total_net, COALESCE(SUM(fixed_salary), 0) as total_gross FROM teacher_salary_payments WHERE teacher_id = ?').get(t.id);
+      const totalAdvanceRecovered = dedRow ? dedRow.total : 0;
+      const totalSalaryPaid = dedRow ? dedRow.total_net : 0;
+
+      const outstandingAdvance = Math.max(0, totalAdvance - totalAdvanceRecovered);
+      const fixedSalary = t.fixed_salary || 0;
+      // Current payable for upcoming cycle: fixed_salary minus unrecovered advance
+      const currentPayable = Math.max(0, fixedSalary - outstandingAdvance);
 
       return {
         ...t,
-        total_classes: earnedRow.total_classes,
-        total_khatas: earnedRow.total_khatas,
-        total_guards: earnedRow.total_guards,
-        class_earnings: earnedRow.class_earnings,
-        khata_earnings: earnedRow.khata_earnings,
-        guard_earnings: earnedRow.guard_earnings,
-        total_earned: totalEarned,
-        total_paid: totalPaid,
+        primary_phone: t.primary_contact === 'secondary' && t.phone_secondary ? t.phone_secondary : (t.phone || ''),
+        assignments,
+        assigned_count: assignments.length,
+        total_advance: totalAdvance,
+        advance_recovered: totalAdvanceRecovered,
+        outstanding_advance: outstandingAdvance,
+        total_salary_paid: totalSalaryPaid,
         current_payable: currentPayable
       };
     });
@@ -2730,24 +2890,34 @@ apiRouter.get('/teachers', (req, res) => {
   }
 });
 
-// Teachers Dashboard Summary (Placed before /teachers/:id to prevent route shadowing)
+// Teachers Dashboard Summary
 apiRouter.get('/teachers/dashboard-summary', (req, res) => {
   try {
-    const teachersCount = db.prepare('SELECT COUNT(*) as count FROM teachers').get().count;
+    const teachersCount = db.prepare('SELECT COUNT(*) as count FROM teachers WHERE is_active = 1').get().count;
 
-    const allTeachers = db.prepare('SELECT id FROM teachers').all();
-    let totalPayable = 0;
+    const allTeachers = db.prepare('SELECT id, fixed_salary FROM teachers WHERE is_active = 1').all();
+    let totalFixedSalaryCommitment = 0;
+    let totalOutstandingAdvances = 0;
+
     for (const t of allTeachers) {
-      const e = db.prepare('SELECT COALESCE(SUM(daily_total), 0) as total FROM teacher_activities WHERE teacher_id = ?').get(t.id).total;
-      const p = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_payments WHERE teacher_id = ?').get(t.id).total;
-      totalPayable += Math.max(0, e - p);
+      totalFixedSalaryCommitment += t.fixed_salary || 0;
+      const adv = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(t.id).total;
+      const ded = db.prepare('SELECT COALESCE(SUM(advance_deducted), 0) as total FROM teacher_salary_payments WHERE teacher_id = ?').get(t.id).total;
+      totalOutstandingAdvances += Math.max(0, adv - ded);
     }
+
+    const todayMonth = getDhakaDate().substring(0, 7);
+    const paidThisMonthRow = db.prepare("SELECT COALESCE(SUM(net_paid), 0) as total FROM teacher_salary_payments WHERE payment_date LIKE ?").get(`${todayMonth}%`);
+    const totalPaidThisMonth = paidThisMonthRow ? paidThisMonthRow.total : 0;
 
     res.json({
       success: true,
       data: {
         totalTeachers: teachersCount,
-        totalPayable
+        totalFixedSalaryCommitment,
+        totalOutstandingAdvances,
+        totalPaidThisMonth,
+        totalPayable: Math.max(0, totalFixedSalaryCommitment - totalOutstandingAdvances)
       }
     });
   } catch (error) {
@@ -2755,168 +2925,65 @@ apiRouter.get('/teachers/dashboard-summary', (req, res) => {
   }
 });
 
-// Teacher Payment & Work Summary (Teacher-wise and Month-wise work and payment)
+// Teacher Payment & Salary Summary (Month-wise)
 apiRouter.get('/teachers/payment-summary', (req, res) => {
   try {
-    const today = getDhakaDate(); // e.g. '2026-10-06'
-    const todayMonth = today.substring(0, 7); // '2026-10'
+    const today = getDhakaDate();
+    const todayMonth = today.substring(0, 7);
+    const selectedMonth = (req.query.month && /^\d{4}-\d{2}$/.test(req.query.month)) ? req.query.month : todayMonth;
 
-    // Selected month: query param or current month
-    const selectedMonth = (req.query.month && /^\d{4}-\d{2}$/.test(req.query.month))
-      ? req.query.month
-      : todayMonth;
+    const allTeachers = db.prepare('SELECT id, name, phone, fixed_salary, stream FROM teachers ORDER BY name ASC').all();
 
-    const teacherId = req.query.teacher_id ? parseInt(req.query.teacher_id, 10) : null;
-
-    // 1. Today's Total Teacher Payment
-    const todayPaidRow = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total
-      FROM teacher_payments
-      WHERE payment_date = ?
-    `).get(today);
-    const todayPaid = todayPaidRow ? todayPaidRow.total : 0;
-
-    // 2. Selected Month Total Teacher Payment
-    const monthPaidRow = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total
-      FROM teacher_payments
-      WHERE payment_date LIKE ?
-    `).get(`${selectedMonth}%`);
-    const monthPaid = monthPaidRow ? monthPaidRow.total : 0;
-
-    // 3. Overall All-Time Teacher Payment
-    const overallPaidRow = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total
-      FROM teacher_payments
-    `).get();
-    const overallPaid = overallPaidRow ? overallPaidRow.total : 0;
-
-    // 4. Monthly Teacher-wise Work & Payment Breakdown
-    const allTeachers = db.prepare('SELECT id, name, phone FROM teachers ORDER BY name ASC').all();
-
-    // Activities for the selected month aggregated by teacher
-    const activityRows = db.prepare(`
-      SELECT teacher_id,
-             COALESCE(SUM(classes_taken), 0) as classes_taken,
-             COALESCE(SUM(khatas_checked), 0) as khatas_checked,
-             COALESCE(SUM(guard_duties), 0) as guard_duties,
-             COALESCE(SUM(daily_total), 0) as monthly_earned
-      FROM teacher_activities
-      WHERE activity_date LIKE ?
-      GROUP BY teacher_id
-    `).all(`${selectedMonth}%`);
-
-    const activityMap = new Map();
-    activityRows.forEach(a => activityMap.set(a.teacher_id, a));
-
-    // Payments for the selected month aggregated by teacher
-    const paymentRows = db.prepare(`
-      SELECT teacher_id,
-             COALESCE(SUM(amount), 0) as total_paid,
-             COUNT(id) as payment_count
-      FROM teacher_payments
-      WHERE payment_date LIKE ?
-      GROUP BY teacher_id
-    `).all(`${selectedMonth}%`);
-
-    const paymentMap = new Map();
-    paymentRows.forEach(p => paymentMap.set(p.teacher_id, p));
-
-    let totalClasses = 0;
-    let totalKhatas = 0;
-    let totalGuards = 0;
+    let totalFixedSalary = 0;
+    let totalPaidInMonth = 0;
+    let totalAdvanceDeductedInMonth = 0;
 
     const teacherBreakdown = allTeachers.map(t => {
-      const act = activityMap.get(t.id) || { classes_taken: 0, khatas_checked: 0, guard_duties: 0, monthly_earned: 0 };
-      const pay = paymentMap.get(t.id) || { total_paid: 0, payment_count: 0 };
+      totalFixedSalary += t.fixed_salary || 0;
 
-      totalClasses += act.classes_taken;
-      totalKhatas += act.khatas_checked;
-      totalGuards += act.guard_duties;
+      // Payment in this month
+      const payRow = db.prepare('SELECT * FROM teacher_salary_payments WHERE teacher_id = ? AND salary_month = ?').get(t.id, selectedMonth);
+
+      // Advances outstanding
+      const adv = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(t.id).total;
+      const ded = db.prepare('SELECT COALESCE(SUM(advance_deducted), 0) as total FROM teacher_salary_payments WHERE teacher_id = ?').get(t.id).total;
+      const outstandingAdvance = Math.max(0, adv - ded);
+
+      const netPaid = payRow ? payRow.net_paid : 0;
+      const advDeducted = payRow ? payRow.advance_deducted : 0;
+
+      totalPaidInMonth += netPaid;
+      totalAdvanceDeductedInMonth += advDeducted;
 
       return {
         teacher_id: t.id,
         teacher_name: t.name,
         teacher_phone: t.phone || '',
-        classes_taken: act.classes_taken,
-        khatas_checked: act.khatas_checked,
-        guard_duties: act.guard_duties,
-        monthly_earned: act.monthly_earned,
-        total_paid: pay.total_paid,
-        payment_count: pay.payment_count
+        fixed_salary: t.fixed_salary || 0,
+        stream: t.stream || 'General',
+        is_paid: Boolean(payRow),
+        payment_date: payRow ? payRow.payment_date : null,
+        net_paid: netPaid,
+        advance_deducted: advDeducted,
+        outstanding_advance: outstandingAdvance,
+        payable_amount: payRow ? 0 : Math.max(0, (t.fixed_salary || 0) - outstandingAdvance)
       };
     });
 
-    // If teacher_id is provided, calculate totals specifically for that teacher
-    let selectedTeacherSummary = null;
-    if (teacherId) {
-      const tData = teacherBreakdown.find(t => t.teacher_id === teacherId);
-      if (tData) {
-        selectedTeacherSummary = {
-          teacher_id: tData.teacher_id,
-          teacher_name: tData.teacher_name,
-          classes_taken: tData.classes_taken,
-          khatas_checked: tData.khatas_checked,
-          guard_duties: tData.guard_duties,
-          total_paid: tData.total_paid
-        };
-      }
-    }
-
-    // Format month name (e.g. '2026-10' -> 'October 2026')
     const [yearStr, monthStr] = selectedMonth.split('-');
     const dateObj = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
     const selectedMonthName = dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-    // 5. Available months for the filter (from DB activities and payments)
-    const dbMonths = db.prepare(`
-      SELECT DISTINCT substr(payment_date, 1, 7) as month_val
-      FROM teacher_payments
-      WHERE payment_date IS NOT NULL AND payment_date != ''
-      UNION
-      SELECT DISTINCT substr(activity_date, 1, 7) as month_val
-      FROM teacher_activities
-      WHERE activity_date IS NOT NULL AND activity_date != ''
-      ORDER BY month_val DESC
-    `).all().map(r => r.month_val).filter(Boolean);
-
-    const monthSet = new Set(dbMonths);
-    monthSet.add(todayMonth);
-
-    const currentYear = parseInt(today.split('-')[0], 10);
-    const currentMonthNum = parseInt(today.split('-')[1], 10);
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(currentYear, currentMonthNum - 1 - i, 1);
-      const mVal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      monthSet.add(mVal);
-    }
-
-    const availableMonths = Array.from(monthSet)
-      .sort((a, b) => b.localeCompare(a))
-      .map(m => {
-        const [y, mNum] = m.split('-');
-        const dt = new Date(parseInt(y, 10), parseInt(mNum, 10) - 1, 1);
-        return {
-          value: m,
-          label: dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-        };
-      });
 
     res.json({
       success: true,
       data: {
         todayDate: today,
-        todayPaid,
         selectedMonth,
         selectedMonthName,
-        monthPaid,
-        overallPaid,
-        totalClasses,
-        totalKhatas,
-        totalGuards,
-        selectedTeacherSummary,
-        teachers: teacherBreakdown,
-        availableMonths
+        totalFixedSalary,
+        totalPaidInMonth,
+        totalAdvanceDeductedInMonth,
+        teachers: teacherBreakdown
       }
     });
   } catch (error) {
@@ -2924,6 +2991,7 @@ apiRouter.get('/teachers/payment-summary', (req, res) => {
   }
 });
 
+// Single Teacher Details with Salary & Advance History
 apiRouter.get('/teachers/:id', (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -2932,44 +3000,41 @@ apiRouter.get('/teachers/:id', (req, res) => {
       return res.status(404).json({ success: false, error: 'Teacher not found' });
     }
 
-    const earnedRow = db.prepare(`
-      SELECT COALESCE(SUM(daily_total), 0) as total_earned,
-             COALESCE(SUM(classes_taken), 0) as total_classes,
-             COALESCE(SUM(khatas_checked), 0) as total_khatas,
-             COALESCE(SUM(guard_duties), 0) as total_guards,
-             COALESCE(SUM(class_earnings), 0) as class_earnings,
-             COALESCE(SUM(khata_earnings), 0) as khata_earnings,
-             COALESCE(SUM(guard_earnings), 0) as guard_earnings
-      FROM teacher_activities WHERE teacher_id = ?
-    `).get(id);
+    const assignments = db.prepare(`
+      SELECT ta.id as assignment_id, ta.subject_id, s.name as subject_name, s.code as subject_code,
+             c.id as class_id, c.name as class_name, c.stream, c.class_number
+      FROM teacher_assignments ta
+      JOIN subjects s ON ta.subject_id = s.id
+      JOIN classes c ON s.class_id = c.id
+      WHERE ta.teacher_id = ? AND ta.is_active = 1
+      ORDER BY c.stream ASC, c.class_number ASC, s.name ASC
+    `).all(id);
 
-    const paidRow = db.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total_paid
-      FROM teacher_payments WHERE teacher_id = ?
-    `).get(id);
+    const advances = db.prepare('SELECT * FROM teacher_advances WHERE teacher_id = ? ORDER BY advance_date DESC, id DESC').all(id);
+    const salaryPayments = db.prepare('SELECT * FROM teacher_salary_payments WHERE teacher_id = ? ORDER BY salary_month DESC, id DESC').all(id);
 
-    const totalEarned = earnedRow.total_earned || 0;
-    const totalPaid = paidRow.total_paid || 0;
-    const currentPayable = totalEarned - totalPaid;
+    const totalAdv = advances.reduce((sum, a) => sum + (a.amount || 0), 0);
+    const totalRec = salaryPayments.reduce((sum, p) => sum + (p.advance_deducted || 0), 0);
+    const totalNetPaid = salaryPayments.reduce((sum, p) => sum + (p.net_paid || 0), 0);
+    const outstandingAdvance = Math.max(0, totalAdv - totalRec);
 
-    const activities = db.prepare('SELECT * FROM teacher_activities WHERE teacher_id = ? ORDER BY activity_date DESC, id DESC').all(id);
-    const payments = db.prepare('SELECT * FROM teacher_payments WHERE teacher_id = ? ORDER BY payment_date DESC, id DESC').all(id);
+    // Keep historical payments accessible for audit
+    const historicalPayments = db.prepare('SELECT * FROM teacher_payments WHERE teacher_id = ? ORDER BY payment_date DESC, id DESC').all(id);
 
     res.json({
       success: true,
       data: {
         ...teacher,
-        total_classes: earnedRow.total_classes,
-        total_khatas: earnedRow.total_khatas,
-        total_guards: earnedRow.total_guards,
-        class_earnings: earnedRow.class_earnings,
-        khata_earnings: earnedRow.khata_earnings,
-        guard_earnings: earnedRow.guard_earnings,
-        total_earned: totalEarned,
-        total_paid: totalPaid,
-        current_payable: currentPayable,
-        activities,
-        payments
+        primary_phone: teacher.primary_contact === 'secondary' && teacher.phone_secondary ? teacher.phone_secondary : (teacher.phone || ''),
+        assignments,
+        advances,
+        salary_payments: salaryPayments,
+        historical_payments: historicalPayments,
+        total_advance: totalAdv,
+        advance_recovered: totalRec,
+        outstanding_advance: outstandingAdvance,
+        total_salary_paid: totalNetPaid,
+        current_payable: Math.max(0, (teacher.fixed_salary || 0) - outstandingAdvance)
       }
     });
   } catch (error) {
@@ -2977,27 +3042,73 @@ apiRouter.get('/teachers/:id', (req, res) => {
   }
 });
 
+// Create Teacher (with fixed monthly salary, dual phone, stream, and class-subject assignments)
 apiRouter.post('/teachers', (req, res) => {
   try {
-    const { name, phone, per_class_rate, per_khata_rate, per_guard_rate } = req.body;
+    const {
+      name,
+      email,
+      phone,
+      phone_secondary,
+      primary_contact,
+      fixed_salary,
+      stream,
+      assigned_subject_ids
+    } = req.body;
+
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Teacher name is required' });
     }
 
-    const pClass = parseFloat(per_class_rate) || 0;
-    const pKhata = parseFloat(per_khata_rate) || 0;
-    const pGuard = parseFloat(per_guard_rate) || 0;
+    const tPhone = phone ? phone.trim() : '';
+    const tPhoneSec = phone_secondary ? phone_secondary.trim() : '';
+    const tEmail = email ? email.trim() : '';
+    const tPrimaryContact = primary_contact === 'secondary' ? 'secondary' : 'primary';
+    const tFixedSalary = parseFloat(fixed_salary) || 0;
+    const tStream = stream === 'Hifz' ? 'Hifz' : 'General';
 
+    // Validate subject assignments (check that no subject is already actively assigned)
+    const subjectIds = Array.isArray(assigned_subject_ids) ? assigned_subject_ids.map(Number).filter(Boolean) : [];
+    if (subjectIds.length > 0) {
+      for (const sId of subjectIds) {
+        const conflict = db.prepare(`
+          SELECT ta.*, t.name as teacher_name, s.name as subject_name, c.name as class_name, c.stream
+          FROM teacher_assignments ta
+          JOIN teachers t ON ta.teacher_id = t.id
+          JOIN subjects s ON ta.subject_id = s.id
+          JOIN classes c ON s.class_id = c.id
+          WHERE ta.subject_id = ? AND ta.is_active = 1
+        `).get(sId);
+
+        if (conflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Subject "${conflict.subject_name}" in ${conflict.stream} ${conflict.class_name} is already assigned to teacher "${conflict.teacher_name}". A subject can have only one active teacher.`
+          });
+        }
+      }
+    }
+
+    // Insert teacher
     const stmt = db.prepare(`
-      INSERT INTO teachers (name, phone, per_class_rate, per_khata_rate, per_guard_rate)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO teachers (name, email, phone, phone_secondary, primary_contact, fixed_salary, stream, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `);
-    const result = stmt.run(name.trim(), phone ? phone.trim() : '', pClass, pKhata, pGuard);
-    const newTeacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(result.lastInsertRowid);
+    const result = stmt.run(name.trim(), tEmail, tPhone, tPhoneSec, tPrimaryContact, tFixedSalary, tStream);
+    const newTeacherId = Number(result.lastInsertRowid);
 
+    // Insert assignments
+    for (const sId of subjectIds) {
+      db.prepare(`
+        INSERT INTO teacher_assignments (teacher_id, subject_id, is_active)
+        VALUES (?, ?, 1)
+      `).run(newTeacherId, sId);
+    }
+
+    const newTeacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(newTeacherId);
     res.json({
       success: true,
-      message: `Teacher "${newTeacher.name}" added successfully`,
+      message: `Teacher "${newTeacher.name}" added successfully with fixed salary ৳${tFixedSalary.toLocaleString()}`,
       data: newTeacher
     });
   } catch (error) {
@@ -3005,27 +3116,71 @@ apiRouter.post('/teachers', (req, res) => {
   }
 });
 
+// Update Teacher (with assignment uniqueness validation)
 apiRouter.put('/teachers/:id', (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { name, phone, per_class_rate, per_khata_rate, per_guard_rate } = req.body;
-
     const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(id);
     if (!teacher) {
       return res.status(404).json({ success: false, error: 'Teacher not found' });
     }
 
+    const {
+      name,
+      email,
+      phone,
+      phone_secondary,
+      primary_contact,
+      fixed_salary,
+      stream,
+      is_active,
+      assigned_subject_ids
+    } = req.body;
+
     const tName = (name && name.trim()) ? name.trim() : teacher.name;
+    const tEmail = email !== undefined ? email.trim() : (teacher.email || '');
     const tPhone = phone !== undefined ? phone.trim() : teacher.phone;
-    const pClass = per_class_rate !== undefined ? parseFloat(per_class_rate) || 0 : teacher.per_class_rate;
-    const pKhata = per_khata_rate !== undefined ? parseFloat(per_khata_rate) || 0 : teacher.per_khata_rate;
-    const pGuard = per_guard_rate !== undefined ? parseFloat(per_guard_rate) || 0 : teacher.per_guard_rate;
+    const tPhoneSec = phone_secondary !== undefined ? phone_secondary.trim() : (teacher.phone_secondary || '');
+    const tPrimaryContact = primary_contact !== undefined ? (primary_contact === 'secondary' ? 'secondary' : 'primary') : teacher.primary_contact;
+    const tFixedSalary = fixed_salary !== undefined ? (parseFloat(fixed_salary) || 0) : teacher.fixed_salary;
+    const tStream = stream !== undefined ? (stream === 'Hifz' ? 'Hifz' : 'General') : (teacher.stream || 'General');
+    const tIsActive = is_active !== undefined ? (is_active ? 1 : 0) : teacher.is_active;
+
+    // Validate subject assignments if passed
+    if (assigned_subject_ids !== undefined) {
+      const subjectIds = Array.isArray(assigned_subject_ids) ? assigned_subject_ids.map(Number).filter(Boolean) : [];
+      for (const sId of subjectIds) {
+        const conflict = db.prepare(`
+          SELECT ta.*, t.name as teacher_name, s.name as subject_name, c.name as class_name, c.stream
+          FROM teacher_assignments ta
+          JOIN teachers t ON ta.teacher_id = t.id
+          JOIN subjects s ON ta.subject_id = s.id
+          JOIN classes c ON s.class_id = c.id
+          WHERE ta.subject_id = ? AND ta.is_active = 1 AND ta.teacher_id != ?
+        `).get(sId, id);
+
+        if (conflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Subject "${conflict.subject_name}" in ${conflict.stream} ${conflict.class_name} is already assigned to teacher "${conflict.teacher_name}".`
+          });
+        }
+      }
+
+      // Deactivate old assignments for this teacher
+      db.prepare('DELETE FROM teacher_assignments WHERE teacher_id = ?').run(id);
+
+      // Insert updated assignments
+      for (const sId of subjectIds) {
+        db.prepare('INSERT INTO teacher_assignments (teacher_id, subject_id, is_active) VALUES (?, ?, 1)').run(id, sId);
+      }
+    }
 
     db.prepare(`
-      UPDATE teachers 
-      SET name = ?, phone = ?, per_class_rate = ?, per_khata_rate = ?, per_guard_rate = ?
+      UPDATE teachers
+      SET name = ?, email = ?, phone = ?, phone_secondary = ?, primary_contact = ?, fixed_salary = ?, stream = ?, is_active = ?
       WHERE id = ?
-    `).run(tName, tPhone, pClass, pKhata, pGuard, id);
+    `).run(tName, tEmail, tPhone, tPhoneSec, tPrimaryContact, tFixedSalary, tStream, tIsActive, id);
 
     const updated = db.prepare('SELECT * FROM teachers WHERE id = ?').get(id);
     res.json({ success: true, message: `Teacher "${updated.name}" updated successfully`, data: updated });
@@ -3034,6 +3189,7 @@ apiRouter.put('/teachers/:id', (req, res) => {
   }
 });
 
+// Soft-deactivate teacher (preserve all historical salary, exam, and assignment records)
 apiRouter.delete('/teachers/:id', requireDeletePermission, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -3042,173 +3198,18 @@ apiRouter.delete('/teachers/:id', requireDeletePermission, (req, res) => {
       return res.status(404).json({ success: false, error: 'Teacher not found' });
     }
 
-    db.prepare('DELETE FROM teacher_activities WHERE teacher_id = ?').run(id);
-    db.prepare('DELETE FROM teacher_payments WHERE teacher_id = ?').run(id);
-    db.prepare('DELETE FROM teachers WHERE id = ?').run(id);
+    // Soft deactivate teacher and release active assignments
+    db.prepare('UPDATE teachers SET is_active = 0 WHERE id = ?').run(id);
+    db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?').run(id);
 
-    res.json({ success: true, message: `Teacher "${teacher.name}" deleted successfully` });
+    res.json({ success: true, message: `Teacher "${teacher.name}" deactivated successfully. Historical records preserved.` });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Daily Activities
-apiRouter.get('/teacher-activities', (req, res) => {
-  try {
-    const teacherId = req.query.teacher_id ? parseInt(req.query.teacher_id, 10) : null;
-    const startDate = req.query.start_date;
-    const endDate = req.query.end_date;
-
-    let query = `
-      SELECT ta.*, t.name as teacher_name, t.phone as teacher_phone
-      FROM teacher_activities ta
-      JOIN teachers t ON ta.teacher_id = t.id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (teacherId) {
-      query += ' AND ta.teacher_id = ?';
-      params.push(teacherId);
-    }
-    if (startDate) {
-      query += ' AND ta.activity_date >= ?';
-      params.push(startDate);
-    }
-    if (endDate) {
-      query += ' AND ta.activity_date <= ?';
-      params.push(endDate);
-    }
-
-    query += ' ORDER BY ta.activity_date DESC, ta.id DESC';
-
-    const rows = db.prepare(query).all(...params);
-
-    let totalClasses = 0;
-    let totalKhatas = 0;
-    let totalGuards = 0;
-    let totalEarnings = 0;
-
-    rows.forEach(r => {
-      totalClasses += r.classes_taken || 0;
-      totalKhatas += r.khatas_checked || 0;
-      totalGuards += r.guard_duties || 0;
-      totalEarnings += r.daily_total || 0;
-    });
-
-    res.json({
-      success: true,
-      data: rows,
-      summary: {
-        totalClasses,
-        totalKhatas,
-        totalGuards,
-        totalEarnings
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-apiRouter.post('/teacher-activities', (req, res) => {
-  try {
-    const { teacher_id, activity_date, classes_taken, khatas_checked, guard_duties } = req.body;
-    const tId = parseInt(teacher_id, 10);
-    if (isNaN(tId)) {
-      return res.status(400).json({ success: false, error: 'Teacher ID is required' });
-    }
-
-    const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(tId);
-    if (!teacher) {
-      return res.status(404).json({ success: false, error: 'Teacher not found' });
-    }
-
-    const dateStr = (activity_date && /^\d{4}-\d{2}-\d{2}$/.test(activity_date)) ? activity_date : getDhakaDate();
-    const cTaken = parseInt(classes_taken, 10) || 0;
-    const kChecked = parseInt(khatas_checked, 10) || 0;
-    const gDuties = parseInt(guard_duties, 10) || 0;
-
-    const pClass = teacher.per_class_rate;
-    const pKhata = teacher.per_khata_rate;
-    const pGuard = teacher.per_guard_rate;
-
-    const classEarnings = cTaken * pClass;
-    const khataEarnings = kChecked * pKhata;
-    const guardEarnings = gDuties * pGuard;
-    const dailyTotal = classEarnings + khataEarnings + guardEarnings;
-
-    const stmt = db.prepare(`
-      INSERT INTO teacher_activities (
-        teacher_id, activity_date, classes_taken, khatas_checked, guard_duties,
-        per_class_rate, per_khata_rate, per_guard_rate,
-        class_earnings, khata_earnings, guard_earnings, daily_total
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const result = stmt.run(
-      tId, dateStr, cTaken, kChecked, gDuties,
-      pClass, pKhata, pGuard,
-      classEarnings, khataEarnings, guardEarnings, dailyTotal
-    );
-
-    res.json({
-      success: true,
-      message: 'Daily activity recorded successfully',
-      data: { id: Number(result.lastInsertRowid), daily_total: dailyTotal }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-apiRouter.put('/teacher-activities/:id', (req, res) => {
-  return res.status(403).json({
-    success: false,
-    error: 'Work records cannot be edited once saved. To add more work, please record a new daily activity.'
-  });
-});
-
-apiRouter.delete('/teacher-activities/:id', requireDeletePermission, (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const activity = db.prepare('SELECT * FROM teacher_activities WHERE id = ?').get(id);
-    if (!activity) {
-      return res.status(404).json({ success: false, error: 'Activity record not found' });
-    }
-
-    db.prepare('DELETE FROM teacher_activities WHERE id = ?').run(id);
-    res.json({ success: true, message: 'Activity record deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Teacher Payments
-apiRouter.get('/teacher-payments', (req, res) => {
-  try {
-    const teacherId = req.query.teacher_id ? parseInt(req.query.teacher_id, 10) : null;
-    let query = `
-      SELECT tp.*, t.name as teacher_name, t.phone as teacher_phone
-      FROM teacher_payments tp
-      JOIN teachers t ON tp.teacher_id = t.id
-      WHERE 1=1
-    `;
-    const params = [];
-    if (teacherId) {
-      query += ' AND tp.teacher_id = ?';
-      params.push(teacherId);
-    }
-    query += ' ORDER BY tp.payment_date DESC, tp.id DESC';
-
-    const rows = db.prepare(query).all(...params);
-    res.json({ success: true, data: rows });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-apiRouter.post('/teachers/:id/pay', (req, res) => {
+// Record Teacher Salary Advance (recorded once in expenses to prevent duplicate accounting)
+apiRouter.post('/teachers/:id/advance', (req, res) => {
   try {
     const teacherId = parseInt(req.params.id, 10);
     const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(teacherId);
@@ -3216,74 +3217,59 @@ apiRouter.post('/teachers/:id/pay', (req, res) => {
       return res.status(404).json({ success: false, error: 'Teacher not found' });
     }
 
-    const earnedRow = db.prepare('SELECT COALESCE(SUM(daily_total), 0) as total FROM teacher_activities WHERE teacher_id = ?').get(teacherId);
-    const paidRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_payments WHERE teacher_id = ?').get(teacherId);
-
-    const currentEarned = earnedRow.total || 0;
-    const currentPaid = paidRow.total || 0;
-    const currentPayable = currentEarned - currentPaid;
-
-    const reqAmount = req.body.amount !== undefined && req.body.amount !== null && req.body.amount !== ''
-      ? parseFloat(req.body.amount)
-      : Math.max(0, currentPayable);
-
-    if (isNaN(reqAmount) || reqAmount <= 0) {
-      return res.status(400).json({ success: false, error: 'Invalid payment amount' });
+    const { amount, advance_date, note, payment_method } = req.body;
+    const advAmount = parseFloat(amount);
+    if (isNaN(advAmount) || advAmount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid advance amount' });
     }
 
-    const payAmount = reqAmount;
+    const advDate = (advance_date && /^\d{4}-\d{2}-\d{2}$/.test(advance_date)) ? advance_date : getDhakaDate();
+    const advNote = note && note.trim() ? note.trim() : `Salary advance for ${teacher.name}`;
+    const payMethod = payment_method || 'Cash';
 
-    const paymentDate = (req.body.payment_date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.payment_date))
-      ? req.body.payment_date
-      : getDhakaDate();
+    // 1. Insert into teacher_advances
+    const advResult = db.prepare(`
+      INSERT INTO teacher_advances (teacher_id, amount, advance_date, note, payment_method, is_recovered)
+      VALUES (?, ?, ?, ?, ?, 0)
+    `).run(teacherId, advAmount, advDate, advNote, payMethod);
 
-    const isAdvance = payAmount > currentPayable;
-    const defaultNote = isAdvance ? `Advance payment to ${teacher.name}` : `Salary paid to ${teacher.name}`;
-    const note = req.body.note && req.body.note.trim()
-      ? req.body.note.trim()
-      : defaultNote;
-
-    // 1. Insert into teacher_payments
-    const payResult = db.prepare(`
-      INSERT INTO teacher_payments (teacher_id, payment_date, amount, note)
-      VALUES (?, ?, ?, ?)
-    `).run(teacherId, paymentDate, payAmount, note);
-
-    // 2. Ensure "Teacher Salary" expense category exists in expense_categories
+    // 2. Ensure "Teacher Salary" expense category exists
     let teacherCat = db.prepare("SELECT id FROM expense_categories WHERE name = 'Teacher Salary'").get();
     if (!teacherCat) {
       const catRes = db.prepare("INSERT INTO expense_categories (name, is_default) VALUES ('Teacher Salary', 1)").run();
       teacherCat = { id: Number(catRes.lastInsertRowid) };
     }
 
-    // 3. Generate sequential voucher number matching institutional expenses
+    // 3. Generate sequential voucher number
     const maxVoucher = db.prepare('SELECT COUNT(*) as count FROM expenses').get();
     const voucherNo = `V-${String(100 + (maxVoucher ? maxVoucher.count : 0) + 1)}`;
 
-    // 4. Create matching expense entry linked directly to the Expense section
+    // 4. Create matching expense entry linked to Teacher Salary expense
     db.prepare(`
       INSERT INTO expenses (category_id, amount, description, expense_date, expense_time, voucher_no)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       teacherCat.id,
-      payAmount,
-      note,
-      paymentDate,
+      advAmount,
+      `Teacher Salary Advance: ${teacher.name} (${advNote})`,
+      advDate,
       getDhakaTime(),
       voucherNo
     );
 
-    const newPayable = currentPayable - payAmount;
+    // Calculate updated outstanding advance
+    const totalAdv = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(teacherId).total;
+    const totalRec = db.prepare('SELECT COALESCE(SUM(advance_deducted), 0) as total FROM teacher_salary_payments WHERE teacher_id = ?').get(teacherId).total;
+    const outstanding = Math.max(0, totalAdv - totalRec);
 
     res.json({
       success: true,
-      message: `Successfully paid ৳${payAmount.toLocaleString()} to ${teacher.name}. Balance is now ৳${newPayable.toLocaleString()}.`,
+      message: `Advance of ৳${advAmount.toLocaleString()} recorded for ${teacher.name}. Outstanding advance: ৳${outstanding.toLocaleString()}.`,
       data: {
-        paymentId: Number(payResult.lastInsertRowid),
-        paidAmount: payAmount,
-        paymentDate,
-        voucherNo,
-        currentPayable: newPayable
+        advance_id: Number(advResult.lastInsertRowid),
+        amount: advAmount,
+        advance_date: advDate,
+        outstanding_advance: outstanding
       }
     });
   } catch (error) {
@@ -3291,41 +3277,786 @@ apiRouter.post('/teachers/:id/pay', (req, res) => {
   }
 });
 
+// Pay Fixed Monthly Salary (with automatic advance adjustment & zero double expense counting)
+apiRouter.post('/teachers/:id/pay-fixed', (req, res) => {
+  try {
+    const teacherId = parseInt(req.params.id, 10);
+    const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(teacherId);
+    if (!teacher) {
+      return res.status(404).json({ success: false, error: 'Teacher not found' });
+    }
+
+    const { salary_month, payment_date, note, payment_method } = req.body;
+    if (!salary_month || !/^\d{4}-\d{2}$/.test(salary_month)) {
+      return res.status(400).json({ success: false, error: 'Valid salary month (YYYY-MM) is required' });
+    }
+
+    // Check duplicate payment for same month
+    const existingPayment = db.prepare('SELECT * FROM teacher_salary_payments WHERE teacher_id = ? AND salary_month = ?').get(teacherId, salary_month);
+    if (existingPayment) {
+      return res.status(400).json({
+        success: false,
+        error: `Salary for month ${salary_month} has already been paid on ${existingPayment.payment_date} (Net: ৳${existingPayment.net_paid.toLocaleString()}).`
+      });
+    }
+
+    const fixedSalary = teacher.fixed_salary || 0;
+    if (fixedSalary <= 0) {
+      return res.status(400).json({ success: false, error: 'Teacher has no fixed salary configured. Please update teacher fixed salary first.' });
+    }
+
+    // Calculate outstanding advance balance
+    const totalAdvRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(teacherId);
+    const totalAdv = totalAdvRow ? totalAdvRow.total : 0;
+
+    const totalRecRow = db.prepare('SELECT COALESCE(SUM(advance_deducted), 0) as total FROM teacher_salary_payments WHERE teacher_id = ?').get(teacherId);
+    const totalRec = totalRecRow ? totalRecRow.total : 0;
+
+    const outstandingAdvance = Math.max(0, totalAdv - totalRec);
+
+    // Automatic deduction of advance against salary (cannot exceed fixed_salary or outstandingAdvance)
+    const advanceDeducted = Math.min(fixedSalary, outstandingAdvance);
+    const netPaid = fixedSalary - advanceDeducted;
+
+    const payDate = (payment_date && /^\d{4}-\d{2}-\d{2}$/.test(payment_date)) ? payment_date : getDhakaDate();
+    const payMethod = payment_method || 'Cash';
+    const payNote = note && note.trim()
+      ? note.trim()
+      : `Monthly salary for ${salary_month} (Gross: ৳${fixedSalary}, Advance Adjusted: ৳${advanceDeducted}, Net Paid: ৳${netPaid})`;
+
+    // 1. Insert into teacher_salary_payments
+    const payResult = db.prepare(`
+      INSERT INTO teacher_salary_payments (teacher_id, salary_month, fixed_salary, advance_deducted, net_paid, payment_date, note, payment_method)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(teacherId, salary_month, fixedSalary, advanceDeducted, netPaid, payDate, payNote, payMethod);
+
+    // 2. Only record netPaid into expenses (advance portion was ALREADY recorded when advance was given)
+    // This strictly prevents duplicate expense accounting!
+    let voucherNo = null;
+    if (netPaid > 0) {
+      let teacherCat = db.prepare("SELECT id FROM expense_categories WHERE name = 'Teacher Salary'").get();
+      if (!teacherCat) {
+        const catRes = db.prepare("INSERT INTO expense_categories (name, is_default) VALUES ('Teacher Salary', 1)").run();
+        teacherCat = { id: Number(catRes.lastInsertRowid) };
+      }
+
+      const maxVoucher = db.prepare('SELECT COUNT(*) as count FROM expenses').get();
+      voucherNo = `V-${String(100 + (maxVoucher ? maxVoucher.count : 0) + 1)}`;
+
+      db.prepare(`
+        INSERT INTO expenses (category_id, amount, description, expense_date, expense_time, voucher_no)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        teacherCat.id,
+        netPaid,
+        `Fixed Salary (${salary_month}): ${teacher.name} [Gross: ৳${fixedSalary.toLocaleString()}, Advance Adjusted: ৳${advanceDeducted.toLocaleString()}]`,
+        payDate,
+        getDhakaTime(),
+        voucherNo
+      );
+    }
+
+    // 3. Mark advances as recovered if fully repaid
+    const newOutstandingAdvance = Math.max(0, outstandingAdvance - advanceDeducted);
+    if (newOutstandingAdvance === 0) {
+      db.prepare('UPDATE teacher_advances SET is_recovered = 1 WHERE teacher_id = ?').run(teacherId);
+    }
+
+    res.json({
+      success: true,
+      message: `Salary for ${salary_month} processed: Gross ৳${fixedSalary.toLocaleString()}, Advance Adjusted ৳${advanceDeducted.toLocaleString()}, Net Paid ৳${netPaid.toLocaleString()}.`,
+      data: {
+        payment_id: Number(payResult.lastInsertRowid),
+        salary_month,
+        fixed_salary: fixedSalary,
+        advance_deducted: advanceDeducted,
+        net_paid: netPaid,
+        remaining_advance: newOutstandingAdvance,
+        voucher_no: voucherNo
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Teacher Advance Statement
 apiRouter.get('/teachers/advance-statement', (req, res) => {
   try {
-    const date = req.query.date || getDhakaDate();
-    const payments = db.prepare(`
-      SELECT tp.*, t.name as teacher_name, t.phone as teacher_phone
-      FROM teacher_payments tp
-      JOIN teachers t ON tp.teacher_id = t.id
-      WHERE tp.payment_date = ?
-      ORDER BY tp.id DESC
-    `).all(date);
+    const advances = db.prepare(`
+      SELECT ta.*, t.name as teacher_name, t.phone as teacher_phone, t.fixed_salary
+      FROM teacher_advances ta
+      JOIN teachers t ON ta.teacher_id = t.id
+      ORDER BY ta.advance_date DESC, ta.id DESC
+    `).all();
 
     let totalAmount = 0;
-    const items = payments.map(p => {
-      totalAmount += p.amount || 0;
-      const isAdvance = p.note && /advance/i.test(p.note);
+    const items = advances.map(a => {
+      totalAmount += a.amount || 0;
       return {
-        id: p.id,
-        date: p.payment_date,
-        payment_date: p.payment_date,
-        teacher_name: p.teacher_name,
-        teacher_phone: p.teacher_phone,
-        amount: p.amount,
-        payment_type: isAdvance ? 'Advance' : 'Payment / Advance',
-        description: p.note || 'Teacher Payment/Advance',
-        note: p.note || 'Teacher Payment/Advance'
+        id: a.id,
+        date: a.advance_date,
+        teacher_name: a.teacher_name,
+        teacher_phone: a.teacher_phone,
+        fixed_salary: a.fixed_salary,
+        amount: a.amount,
+        is_recovered: a.is_recovered,
+        note: a.note || 'Salary Advance'
       };
     });
 
     res.json({
       success: true,
-      date,
       totalAmount,
       count: items.length,
-      payments: items
+      advances: items
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// ACADEMIC & SUBJECT MANAGEMENT (SUPER ADMIN)
+// ----------------------------------------------------
+apiRouter.get('/academic/classes', (req, res) => {
+  try {
+    const stream = req.query.stream;
+    const ayId = req.query.academic_year_id ? parseInt(req.query.academic_year_id, 10) : getActiveAcademicYearId();
+
+    let query = `
+      SELECT c.*, 
+             (SELECT COUNT(*) FROM subjects s WHERE s.class_id = c.id AND s.is_active = 1) as subject_count,
+             (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.status = 'active') as student_count
+      FROM classes c
+      WHERE 1=1
+    `;
+    const params = [];
+    if (ayId) {
+      query += ' AND c.academic_year_id = ?';
+      params.push(ayId);
+    }
+    if (stream && ['General', 'Hifz'].includes(stream)) {
+      query += ' AND c.stream = ?';
+      params.push(stream);
+    }
+    query += ' ORDER BY c.stream ASC, c.class_number ASC';
+
+    const classes = db.prepare(query).all(...params);
+    res.json({ success: true, data: classes });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get subjects with teacher assignments
+apiRouter.get('/academic/subjects', (req, res) => {
+  try {
+    const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+    const stream = req.query.stream;
+
+    let query = `
+      SELECT s.*, c.name as class_name, c.stream as class_stream, c.class_number,
+             ta.id as assignment_id, ta.teacher_id, t.name as teacher_name, t.phone as teacher_phone
+      FROM subjects s
+      JOIN classes c ON s.class_id = c.id
+      LEFT JOIN teacher_assignments ta ON s.id = ta.subject_id AND ta.is_active = 1
+      LEFT JOIN teachers t ON ta.teacher_id = t.id
+      WHERE s.is_active = 1
+    `;
+    const params = [];
+    if (classId) {
+      query += ' AND s.class_id = ?';
+      params.push(classId);
+    }
+    if (stream && ['General', 'Hifz'].includes(stream)) {
+      query += ' AND s.stream = ?';
+      params.push(stream);
+    }
+    query += ' ORDER BY s.stream ASC, c.class_number ASC, s.name ASC';
+
+    const subjects = db.prepare(query).all(...params);
+    res.json({ success: true, data: subjects });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Create subject
+apiRouter.post('/academic/subjects', (req, res) => {
+  try {
+    const { name, code, class_id, stream, full_marks, is_optional } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Subject name is required' });
+    }
+    if (!class_id) {
+      return res.status(400).json({ success: false, error: 'Class is required' });
+    }
+
+    const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(class_id);
+    if (!cls) {
+      return res.status(404).json({ success: false, error: 'Class not found' });
+    }
+
+    const subjStream = stream || cls.stream || 'General';
+    const fMarks = parseInt(full_marks, 10) || 100;
+    const isOpt = is_optional ? 1 : 0;
+
+    const stmt = db.prepare(`
+      INSERT INTO subjects (class_id, name, code, stream, full_marks, is_optional, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `);
+    const result = stmt.run(class_id, name.trim(), (code || '').trim(), subjStream, fMarks, isOpt);
+
+    const newSubj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(result.lastInsertRowid);
+    res.json({ success: true, message: `Subject "${newSubj.name}" added successfully`, data: newSubj });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update subject
+apiRouter.put('/academic/subjects/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
+    if (!subj) {
+      return res.status(404).json({ success: false, error: 'Subject not found' });
+    }
+
+    const { name, code, full_marks, is_optional, is_active } = req.body;
+    const sName = (name && name.trim()) ? name.trim() : subj.name;
+    const sCode = code !== undefined ? code.trim() : subj.code;
+    const fMarks = full_marks !== undefined ? (parseInt(full_marks, 10) || 100) : subj.full_marks;
+    const isOpt = is_optional !== undefined ? (is_optional ? 1 : 0) : subj.is_optional;
+    const active = is_active !== undefined ? (is_active ? 1 : 0) : subj.is_active;
+
+    db.prepare(`
+      UPDATE subjects
+      SET name = ?, code = ?, full_marks = ?, is_optional = ?, is_active = ?
+      WHERE id = ?
+    `).run(sName, sCode, fMarks, isOpt, active, id);
+
+    const updated = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
+    res.json({ success: true, message: `Subject "${updated.name}" updated successfully`, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Delete subject (Safe deactivation if historical exam marks exist)
+apiRouter.delete('/academic/subjects/:id', requireDeletePermission, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
+    if (!subj) {
+      return res.status(404).json({ success: false, error: 'Subject not found' });
+    }
+
+    // Check if marks exist for this subject
+    const marksCount = db.prepare('SELECT COUNT(*) as count FROM exam_marks WHERE subject_id = ?').get(id).count;
+    if (marksCount > 0) {
+      // Deactivate safely rather than deleting historical marks
+      db.prepare('UPDATE subjects SET is_active = 0 WHERE id = ?').run(id);
+      db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE subject_id = ?').run(id);
+      return res.json({
+        success: true,
+        message: `Subject "${subj.name}" has ${marksCount} historical examination records and has been deactivated to preserve academic integrity.`
+      });
+    }
+
+    // Otherwise, can safely remove
+    db.prepare('DELETE FROM teacher_assignments WHERE subject_id = ?').run(id);
+    db.prepare('DELETE FROM subjects WHERE id = ?').run(id);
+
+    res.json({ success: true, message: `Subject "${subj.name}" deleted successfully` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Available subjects dynamic helper (for Teacher assignment UI)
+apiRouter.get('/academic/available-subjects', (req, res) => {
+  try {
+    const stream = req.query.stream || 'General';
+    const currentTeacherId = req.query.teacher_id ? parseInt(req.query.teacher_id, 10) : null;
+
+    const subjects = db.prepare(`
+      SELECT s.id, s.name, s.code, s.class_id, s.stream,
+             c.name as class_name, c.class_number,
+             ta.teacher_id as assigned_teacher_id,
+             t.name as assigned_teacher_name
+      FROM subjects s
+      JOIN classes c ON s.class_id = c.id
+      LEFT JOIN teacher_assignments ta ON s.id = ta.subject_id AND ta.is_active = 1
+      LEFT JOIN teachers t ON ta.teacher_id = t.id
+      WHERE s.is_active = 1 AND s.stream = ?
+      ORDER BY c.class_number ASC, s.name ASC
+    `).all(stream);
+
+    const results = subjects.map(s => {
+      const isAssignedToOther = Boolean(s.assigned_teacher_id && s.assigned_teacher_id !== currentTeacherId);
+      const isAssignedToCurrent = Boolean(s.assigned_teacher_id && s.assigned_teacher_id === currentTeacherId);
+      return {
+        ...s,
+        is_assigned_to_other: isAssignedToOther,
+        is_assigned_to_current: isAssignedToCurrent,
+        is_available: !isAssignedToOther
+      };
+    });
+
+    res.json({ success: true, data: results });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Super Admin Teacher-Subject Assignment Endpoint
+apiRouter.post('/academic/assignments', (req, res) => {
+  try {
+    const { teacher_id, subject_id } = req.body;
+    if (!teacher_id || !subject_id) {
+      return res.status(400).json({ success: false, error: 'teacher_id and subject_id are required' });
+    }
+
+    const tId = parseInt(teacher_id, 10);
+    const sId = parseInt(subject_id, 10);
+
+    const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(tId);
+    if (!teacher) return res.status(404).json({ success: false, error: 'Teacher not found' });
+
+    const subject = db.prepare('SELECT s.*, c.name as class_name, c.stream FROM subjects s JOIN classes c ON s.class_id = c.id WHERE s.id = ?').get(sId);
+    if (!subject) return res.status(404).json({ success: false, error: 'Subject not found' });
+
+    // Strict Rule: Check if assigned to another active teacher
+    const conflict = db.prepare(`
+      SELECT ta.*, t.name as teacher_name
+      FROM teacher_assignments ta
+      JOIN teachers t ON ta.teacher_id = t.id
+      WHERE ta.subject_id = ? AND ta.is_active = 1 AND ta.teacher_id != ?
+    `).get(sId, tId);
+
+    if (conflict) {
+      return res.status(400).json({
+        success: false,
+        error: `Subject "${subject.name}" in ${subject.stream} ${subject.class_name} is already assigned to "${conflict.teacher_name}".`
+      });
+    }
+
+    // Upsert or insert assignment
+    const existing = db.prepare('SELECT * FROM teacher_assignments WHERE subject_id = ?').get(sId);
+    if (existing) {
+      db.prepare('UPDATE teacher_assignments SET teacher_id = ?, is_active = 1 WHERE subject_id = ?').run(tId, sId);
+    } else {
+      const ayId = subject.academic_year_id || getActiveAcademicYearId();
+      db.prepare('INSERT INTO teacher_assignments (teacher_id, subject_id, class_id, stream, academic_year_id, is_active) VALUES (?, ?, ?, ?, ?, 1)').run(tId, sId, subject.class_id, subject.stream || 'General', ayId);
+    }
+
+    res.json({
+      success: true,
+      message: `Subject "${subject.name}" (${subject.stream} ${subject.class_name}) assigned to "${teacher.name}" successfully.`
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ----------------------------------------------------
+// EXAMINATION MANAGEMENT & MARKS ENTRY
+// ----------------------------------------------------
+apiRouter.get('/examinations', (req, res) => {
+  try {
+    const stream = req.query.stream;
+    const ayId = req.query.academic_year_id ? parseInt(req.query.academic_year_id, 10) : getActiveAcademicYearId();
+
+    let query = `
+      SELECT e.*, ay.year_name, c.name as class_name, c.class_number
+      FROM examinations e
+      LEFT JOIN academic_years ay ON e.academic_year_id = ay.id
+      LEFT JOIN classes c ON e.class_id = c.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (ayId) {
+      query += ' AND e.academic_year_id = ?';
+      params.push(ayId);
+    }
+    if (stream && ['General', 'Hifz'].includes(stream)) {
+      query += ' AND e.stream = ?';
+      params.push(stream);
+    }
+    query += ' ORDER BY e.id DESC';
+
+    const exams = db.prepare(query).all(...params);
+    res.json({ success: true, data: exams });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+apiRouter.post('/examinations', (req, res) => {
+  try {
+    const {
+      academic_year_id,
+      stream,
+      class_id,
+      exam_type,
+      name,
+      start_date,
+      end_date,
+      weight_monthly,
+      weight_main
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Examination name is required' });
+    }
+
+    const ayId = academic_year_id ? parseInt(academic_year_id, 10) : getActiveAcademicYearId();
+    const eStream = stream === 'Hifz' ? 'Hifz' : 'General';
+    const cId = class_id ? parseInt(class_id, 10) : null;
+    const eType = exam_type === 'final' ? 'final' : 'half_yearly';
+    const wMonthly = parseFloat(weight_monthly) || (eStream === 'General' ? 30 : 0);
+    const wMain = parseFloat(weight_main) || (eStream === 'General' ? 70 : 100);
+
+    const stmt = db.prepare(`
+      INSERT INTO examinations (academic_year_id, stream, class_id, exam_type, name, start_date, end_date, weight_monthly, weight_main, is_published)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `);
+    const result = stmt.run(ayId, eStream, cId, eType, name.trim(), start_date || null, end_date || null, wMonthly, wMain);
+
+    const newExam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(result.lastInsertRowid);
+    res.json({ success: true, message: `Examination "${newExam.name}" created successfully`, data: newExam });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Examination Marks Sheet (Grid view for Marks Entry)
+apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const exam = db.prepare(`
+      SELECT e.*, ay.year_name, c.name as class_name, c.class_number
+      FROM examinations e
+      LEFT JOIN academic_years ay ON e.academic_year_id = ay.id
+      LEFT JOIN classes c ON e.class_id = c.id
+      WHERE e.id = ?
+    `).get(examId);
+
+    if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
+
+    const selectedClassId = req.query.class_id ? parseInt(req.query.class_id, 10) : exam.class_id;
+    const selectedSubjectId = req.query.subject_id ? parseInt(req.query.subject_id, 10) : null;
+
+    // Subjects in this class/stream
+    let subjQuery = 'SELECT s.*, c.name as class_name FROM subjects s JOIN classes c ON s.class_id = c.id WHERE s.is_active = 1 AND s.stream = ?';
+    const subParams = [exam.stream];
+    if (selectedClassId) {
+      subjQuery += ' AND s.class_id = ?';
+      subParams.push(selectedClassId);
+    }
+    subjQuery += ' ORDER BY s.name ASC';
+    const subjects = db.prepare(subjQuery).all(...subParams);
+
+    // Students in this class/stream
+    let stuQuery = "SELECT st.*, c.name as class_name FROM students st JOIN classes c ON st.class_id = c.id WHERE st.status = 'active' AND st.stream = ?";
+    const stuParams = [exam.stream];
+    if (selectedClassId) {
+      stuQuery += ' AND st.class_id = ?';
+      stuParams.push(selectedClassId);
+    }
+    if (exam.academic_year_id) {
+      stuQuery += ' AND st.academic_year_id = ?';
+      stuParams.push(exam.academic_year_id);
+    }
+    stuQuery += ' ORDER BY st.roll_number ASC, st.name ASC';
+    const students = db.prepare(stuQuery).all(...stuParams);
+
+    // Existing Marks
+    let marksQuery = 'SELECT * FROM exam_marks WHERE examination_id = ?';
+    const marksParams = [examId];
+    if (selectedSubjectId) {
+      marksQuery += ' AND subject_id = ?';
+      marksParams.push(selectedSubjectId);
+    }
+    const marks = db.prepare(marksQuery).all(...marksParams);
+
+    res.json({
+      success: true,
+      data: {
+        exam,
+        subjects,
+        students,
+        marks
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Save Marks (Batch or Single)
+apiRouter.post('/examinations/:id/save-marks', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
+    if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
+
+    const { marks_list } = req.body;
+    if (!Array.isArray(marks_list) || marks_list.length === 0) {
+      return res.status(400).json({ success: false, error: 'marks_list array is required' });
+    }
+
+    const insertedOrUpdated = [];
+
+    for (const item of marks_list) {
+      const { student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, is_absent, remarks } = item;
+      if (!student_id || !subject_id) continue;
+
+      const sId = parseInt(student_id, 10);
+      const subId = parseInt(subject_id, 10);
+
+      // Verify subject belongs to correct stream
+      const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(subId);
+      if (!subj) continue;
+
+      // Calculate final score using the strict rounding rules
+      const finalScore = is_absent ? 0 : calculateSubjectScore(exam.stream, exam.exam_type, {
+        mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam
+      });
+
+      const { grade, gpa } = is_absent ? { grade: 'F', gpa: 0 } : getGradeAndGpa(finalScore);
+
+      // Check if record exists
+      const existing = db.prepare('SELECT id FROM exam_marks WHERE examination_id = ? AND student_id = ? AND subject_id = ?').get(examId, sId, subId);
+
+      if (existing) {
+        db.prepare(`
+          UPDATE exam_marks
+          SET mt1 = ?, mt2 = ?, mt3 = ?, mt4 = ?, ct_marks = ?, main_exam = ?, final_exam = ?,
+              final_score = ?, grade = ?, grade_point = ?, is_absent = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(
+          mt1 !== undefined ? mt1 : null,
+          mt2 !== undefined ? mt2 : null,
+          mt3 !== undefined ? mt3 : null,
+          mt4 !== undefined ? mt4 : null,
+          ct_marks !== undefined ? ct_marks : null,
+          main_exam !== undefined ? main_exam : null,
+          final_exam !== undefined ? final_exam : null,
+          finalScore,
+          grade,
+          gpa,
+          is_absent ? 1 : 0,
+          remarks || '',
+          existing.id
+        );
+        insertedOrUpdated.push(existing.id);
+      } else {
+        const ins = db.prepare(`
+          INSERT INTO exam_marks (examination_id, student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          examId,
+          sId,
+          subId,
+          mt1 !== undefined ? mt1 : null,
+          mt2 !== undefined ? mt2 : null,
+          mt3 !== undefined ? mt3 : null,
+          mt4 !== undefined ? mt4 : null,
+          ct_marks !== undefined ? ct_marks : null,
+          main_exam !== undefined ? main_exam : null,
+          final_exam !== undefined ? final_exam : null,
+          finalScore,
+          grade,
+          gpa,
+          is_absent ? 1 : 0,
+          remarks || ''
+        );
+        insertedOrUpdated.push(Number(ins.lastInsertRowid));
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully saved marks for ${insertedOrUpdated.length} entry/entries.`,
+      count: insertedOrUpdated.length
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Compile and Get Results for Exam & Class (with Rank calculation)
+apiRouter.get('/examinations/:id/results', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+
+    const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
+    if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
+
+    const cId = classId || exam.class_id;
+    if (!cId) {
+      return res.status(400).json({ success: false, error: 'class_id is required' });
+    }
+
+    const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(cId);
+
+    // Get subjects in class
+    const subjects = db.prepare('SELECT * FROM subjects WHERE class_id = ? AND is_active = 1 ORDER BY name ASC').all(cId);
+    const subjectCount = subjects.length;
+    const grandTotalMarks = subjectCount * 100;
+
+    // Get students in this class and stream
+    const students = db.prepare("SELECT * FROM students WHERE class_id = ? AND stream = ? AND status = 'active' ORDER BY roll_number ASC").all(cId, exam.stream);
+
+    // Compute highest mark in class for each subject
+    const highestMarksMap = {};
+    for (const sub of subjects) {
+      const highRow = db.prepare('SELECT MAX(final_score) as high FROM exam_marks WHERE examination_id = ? AND subject_id = ?').get(examId, sub.id);
+      highestMarksMap[sub.id] = highRow && highRow.high !== null ? highRow.high : 0;
+    }
+
+    // Process each student
+    const studentResults = students.map(st => {
+      const stMarks = db.prepare('SELECT * FROM exam_marks WHERE examination_id = ? AND student_id = ?').all(examId, st.id);
+
+      let totalMarksObtained = 0;
+      let totalGpa = 0;
+      let hasFail = false;
+      let subjectsWithMarks = 0;
+
+      const marksDetail = subjects.map(sub => {
+        const m = stMarks.find(item => item.subject_id === sub.id);
+        const finalScore = m ? m.final_score : 0;
+        const gradeInfo = m ? { grade: m.grade, gpa: m.grade_point } : getGradeAndGpa(finalScore);
+
+        if (m) subjectsWithMarks++;
+        totalMarksObtained += finalScore;
+        totalGpa += gradeInfo.gpa;
+        if (gradeInfo.grade === 'F') hasFail = true;
+
+        // Breakdown components
+        let termMarks = 0;
+        let mtMarks = 0;
+        if (exam.stream === 'General') {
+          termMarks = (exam.exam_type === 'final' ? (m?.final_exam || 0) : (m?.main_exam || 0)) * 0.70;
+          const mtA = exam.exam_type === 'final' ? ((m?.mt3 || 0) + (m?.mt4 || 0)) / 2 : ((m?.mt1 || 0) + (m?.mt2 || 0)) / 2;
+          mtMarks = mtA * 0.30;
+        } else {
+          termMarks = m?.final_exam || 0;
+          mtMarks = m?.ct_marks || 0;
+        }
+
+        return {
+          subject_id: sub.id,
+          subject_name: sub.name,
+          full_marks: sub.full_marks || 100,
+          term_marks: Math.round(termMarks * 10) / 10,
+          mt_marks: Math.round(mtMarks * 10) / 10,
+          total_marks: finalScore,
+          grade: gradeInfo.grade,
+          grade_point: gradeInfo.gpa.toFixed(2),
+          highest_marks: highestMarksMap[sub.id] || 0
+        };
+      });
+
+      const averageMarks = subjectCount > 0 ? (totalMarksObtained / subjectCount) : 0;
+      const percentage = grandTotalMarks > 0 ? ((totalMarksObtained / grandTotalMarks) * 100) : 0;
+      const obtainedGpa = subjectCount > 0 ? (hasFail ? 0 : totalGpa / subjectCount) : 0;
+      const overallGrade = getGradeAndGpa(averageMarks);
+
+      // Fetch attendance & metadata
+      const meta = db.prepare('SELECT * FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, st.id);
+
+      return {
+        student_id: st.id,
+        name: st.name,
+        roll: st.roll_number,
+        father_name: st.father_name || '',
+        mother_name: st.mother_name || '',
+        stream: st.stream,
+        class_name: cls ? cls.name : '',
+        class_teacher: cls?.class_teacher || 'Md. Rafiqul Islam',
+        subjects: marksDetail,
+        total_marks_obtained: totalMarksObtained,
+        grand_total_marks: grandTotalMarks,
+        average_marks: Math.round(averageMarks * 10) / 10,
+        percentage: Math.round(percentage * 10) / 10,
+        obtained_gpa: hasFail ? 0.00 : Math.round(obtainedGpa * 100) / 100,
+        overall_grade: hasFail ? 'F' : overallGrade.grade,
+        remarks: hasFail ? 'Fail' : overallGrade.remarks,
+        total_working_days: meta?.total_working_days || 120,
+        presence: meta?.presence || 112,
+        absent: meta?.absent || 8,
+        percentage_of_attendance: meta?.percentage_of_attendance || (meta?.total_working_days ? Math.round((meta.presence / meta.total_working_days) * 100) : 93),
+        manners_discipline: meta?.manners_discipline || 'Satisfactory',
+        class_teacher_remarks: meta?.class_teacher_remarks || 'Hardworking student, keep it up.',
+        principal_remarks: meta?.principal_remarks || 'Promoted with commendable performance.'
+      };
+    });
+
+    // Calculate Merit Position / Rank (Ordered by Total Marks DESC, then GPA DESC)
+    studentResults.sort((a, b) => {
+      if (b.total_marks_obtained !== a.total_marks_obtained) {
+        return b.total_marks_obtained - a.total_marks_obtained;
+      }
+      return b.obtained_gpa - a.obtained_gpa;
+    });
+
+    studentResults.forEach((st, index) => {
+      st.position = index + 1;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        exam,
+        class_name: cls ? cls.name : '',
+        stream: exam.stream,
+        subject_count: subjectCount,
+        grand_total_marks: grandTotalMarks,
+        results: studentResults
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update student metadata (working days, presence, remarks)
+apiRouter.post('/examinations/:id/student-meta', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const { student_id, total_working_days, presence, absent, manners_discipline, class_teacher_remarks, principal_remarks } = req.body;
+
+    if (!student_id) return res.status(400).json({ success: false, error: 'student_id is required' });
+
+    const sId = parseInt(student_id, 10);
+    const wDays = parseInt(total_working_days, 10) || 0;
+    const pres = parseInt(presence, 10) || 0;
+    const abs = parseInt(absent, 10) || 0;
+    const attPct = wDays > 0 ? Math.round((pres / wDays) * 100) : 0;
+
+    const existing = db.prepare('SELECT id FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
+
+    if (existing) {
+      db.prepare(`
+        UPDATE student_exam_results
+        SET total_working_days = ?, presence = ?, absent = ?, percentage_of_attendance = ?, manners_discipline = ?,
+            class_teacher_remarks = ?, principal_remarks = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '', existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO student_exam_results (examination_id, student_id, total_working_days, presence, absent, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(examId, sId, wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '');
+    }
+
+    res.json({ success: true, message: 'Student examination metadata saved successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -3445,21 +4176,25 @@ apiRouter.get('/staff/:id', (req, res) => {
 
 apiRouter.post('/staff', (req, res) => {
   try {
-    const { name, phone, address, work_post, fixed_salary } = req.body;
+    const { name, phone, phone_secondary, primary_contact, address, work_post, fixed_salary, emergency_contact, optional_details } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'Staff name is required' });
     }
     const salary = parseFloat(fixed_salary) || 0;
     const stmt = db.prepare(`
-      INSERT INTO staff (name, phone, address, work_post, fixed_salary)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO staff (name, phone, phone_secondary, primary_contact, address, work_post, fixed_salary, emergency_contact, optional_details)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       name.trim(),
       phone ? phone.trim() : '',
+      phone_secondary ? phone_secondary.trim() : null,
+      primary_contact === 'secondary' ? 'secondary' : 'primary',
       address ? address.trim() : '',
       work_post ? work_post.trim() : '',
-      salary
+      salary,
+      emergency_contact ? emergency_contact.trim() : null,
+      optional_details ? optional_details.trim() : null
     );
     const newStaff = db.prepare('SELECT * FROM staff WHERE id = ?').get(result.lastInsertRowid);
     res.json({ success: true, message: `Staff "${newStaff.name}" added successfully`, data: newStaff });
@@ -3473,19 +4208,23 @@ apiRouter.put('/staff/:id', (req, res) => {
     const id = parseInt(req.params.id, 10);
     const staff = db.prepare('SELECT * FROM staff WHERE id = ?').get(id);
     if (!staff) {
-      return res.status(404).json({ success: false, error: 'Staff not found' });
+      return res.status(404).json({ success: false, error: 'Staff member not found' });
     }
     const name = req.body.name !== undefined ? req.body.name.trim() : staff.name;
     const phone = req.body.phone !== undefined ? req.body.phone.trim() : staff.phone;
+    const phone_secondary = req.body.phone_secondary !== undefined ? (req.body.phone_secondary ? req.body.phone_secondary.trim() : null) : staff.phone_secondary;
+    const primary_contact = req.body.primary_contact !== undefined ? (req.body.primary_contact === 'secondary' ? 'secondary' : 'primary') : (staff.primary_contact || 'primary');
     const address = req.body.address !== undefined ? req.body.address.trim() : (staff.address || '');
     const work_post = req.body.work_post !== undefined ? req.body.work_post.trim() : (staff.work_post || '');
     const fixed_salary = req.body.fixed_salary !== undefined ? (parseFloat(req.body.fixed_salary) || 0) : staff.fixed_salary;
+    const emergency_contact = req.body.emergency_contact !== undefined ? (req.body.emergency_contact ? req.body.emergency_contact.trim() : null) : staff.emergency_contact;
+    const optional_details = req.body.optional_details !== undefined ? (req.body.optional_details ? req.body.optional_details.trim() : null) : staff.optional_details;
 
     db.prepare(`
       UPDATE staff
-      SET name = ?, phone = ?, address = ?, work_post = ?, fixed_salary = ?
+      SET name = ?, phone = ?, phone_secondary = ?, primary_contact = ?, address = ?, work_post = ?, fixed_salary = ?, emergency_contact = ?, optional_details = ?
       WHERE id = ?
-    `).run(name, phone, address, work_post, fixed_salary, id);
+    `).run(name, phone, phone_secondary, primary_contact, address, work_post, fixed_salary, emergency_contact, optional_details, id);
 
     const updated = db.prepare('SELECT * FROM staff WHERE id = ?').get(id);
     res.json({ success: true, message: `Staff "${updated.name}" updated successfully`, data: updated });

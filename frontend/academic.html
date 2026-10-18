@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Academic & Subject Management - Coaching Center Management System</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0">
+  <link rel="stylesheet" href="css/global.css">
+  <link rel="stylesheet" href="teachers.css">
+</head>
+
+<body>
+  <!-- Sidebar backdrop for mobile -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <span class="material-symbols-outlined">school</span>
+        </div>
+        <div class="sidebar-brand">
+          <h1>Coaching Center</h1>
+          <p>ADMIN CONSOLE</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="dashboard.html" class="nav-link">
+          <span class="material-symbols-outlined">grid_view</span>
+          Dashboard
+        </a>
+        <a href="students.html" class="nav-link">
+          <span class="material-symbols-outlined">school</span>
+          Students
+        </a>
+        <a href="payments.html" class="nav-link">
+          <span class="material-symbols-outlined">receipt_long</span>
+          Payments
+        </a>
+        <a href="teachers.html" class="nav-link">
+          <span class="material-symbols-outlined">badge</span>
+          Teachers
+        </a>
+        <a href="academic.html" class="nav-link active">
+          <span class="material-symbols-outlined">menu_book</span>
+          Academic & Subjects
+        </a>
+        <a href="examinations.html" class="nav-link">
+          <span class="material-symbols-outlined">quiz</span>
+          Examinations
+        </a>
+        <a href="result-cards.html" class="nav-link">
+          <span class="material-symbols-outlined">workspace_premium</span>
+          Result Cards
+        </a>
+        <a href="staff.html" class="nav-link">
+          <span class="material-symbols-outlined">assignment_ind</span>
+          Staff
+        </a>
+        <a href="monthly-overview.html" class="nav-link">
+          <span class="material-symbols-outlined">calendar_month</span>
+          Monthly Overview
+        </a>
+        <a href="expenses.html" class="nav-link">
+          <span class="material-symbols-outlined">payments</span>
+          Expenses
+        </a>
+        <a href="reports.html" class="nav-link">
+          <span class="material-symbols-outlined">bar_chart</span>
+          Reports
+        </a>
+        <a href="settings.html" class="nav-link">
+          <span class="material-symbols-outlined">settings</span>
+          Settings
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="system-status-badge">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-weight: 600; color: #1e293b;">Enterprise v2.6</span>
+            <span class="status-indicator"></span>
+          </div>
+          <p style="color: #64748b; font-size: 0.7rem;">Local SQLite Active</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0;">
+          <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open navigation menu" title="Open menu">
+            <span class="material-symbols-outlined" style="font-size: 1.3rem;">menu</span>
+          </button>
+          <div style="font-weight: 700; font-size: 1.15rem; color: #0f172a;">Academic Architecture & Subject Allocations</div>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="badge-tag" id="activeAyBadge">AY 2026</span>
+          <div class="topbar-date" id="topbarDate">--</div>
+        </div>
+      </header>
+
+      <!-- Page Body -->
+      <main class="page-content">
+        <!-- Breadcrumbs & Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Curriculum & Faculty Allocation</div>
+            <h2 style="font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0.15rem 0;">Stream, Classes & Teacher Assignments</h2>
+            <p style="font-size: 0.82rem; color: #64748b; margin: 0;">Manage separate General & Hifz streams, subject configurations, and strictly exclusive teacher assignments.</p>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" id="tabBtnClasses" onclick="switchAcademicTab('classes')">
+              <span class="material-symbols-outlined" style="font-size: 1rem;">meeting_room</span> Classes
+            </button>
+            <button class="btn btn-secondary btn-sm active-tab" id="tabBtnSubjects" onclick="switchAcademicTab('subjects')" style="background: #004ac6; color: white;">
+              <span class="material-symbols-outlined" style="font-size: 1rem;">menu_book</span> Subjects
+            </button>
+            <button class="btn btn-secondary btn-sm" id="tabBtnAssignments" onclick="switchAcademicTab('assignments')">
+              <span class="material-symbols-outlined" style="font-size: 1rem;">assignment_ind</span> Teacher Assignments
+            </button>
+          </div>
+        </div>
+
+        <!-- TAB 1: SUBJECTS (Default) -->
+        <section id="sectionSubjects" class="academic-section">
+          <div class="card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                <div>
+                  <label style="font-size: 0.72rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">STREAM</label>
+                  <select id="subjectStreamFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 130px;">
+                    <option value="">All Streams</option>
+                    <option value="General">General Stream</option>
+                    <option value="Hifz">Hifz Stream</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size: 0.72rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 2px;">CLASS</label>
+                  <select id="subjectClassFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 140px;">
+                    <option value="">All Classes</option>
+                  </select>
+                </div>
+              </div>
+
+              <button class="btn btn-primary btn-sm" id="openAddSubjectModalBtn" style="background: #004ac6;">
+                <span class="material-symbols-outlined" style="font-size: 1rem;">add</span> Add New Subject
+              </button>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Subject Code</th>
+                    <th>Subject Name</th>
+                    <th>Stream</th>
+                    <th>Class</th>
+                    <th>Full Marks</th>
+                    <th>Assigned Teacher</th>
+                    <th style="text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="subjectsTableBody">
+                  <tr>
+                    <td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">Loading subjects...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: TEACHER ASSIGNMENTS -->
+        <section id="sectionAssignments" class="academic-section" style="display: none;">
+          <div class="card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+              <div>
+                <h3 style="font-size: 1rem; font-weight: 700; color: #0f172a; margin: 0;">Class-Wise Exclusive Teacher Assignments</h3>
+                <p style="font-size: 0.75rem; color: #64748b; margin: 0.1rem 0 0;">Strict enforcement: Exactly 1 active teacher per subject in a class.</p>
+              </div>
+
+              <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <select id="assignStreamFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 130px;">
+                  <option value="General">General Stream</option>
+                  <option value="Hifz">Hifz Stream</option>
+                </select>
+                <select id="assignClassFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 140px;">
+                  <option value="">Select Class...</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Stream & Class</th>
+                    <th>Currently Assigned Teacher</th>
+                    <th>Contact Phone</th>
+                    <th>Teacher Stream</th>
+                    <th style="text-align: right;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="assignmentsTableBody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">Select a class to view subject assignments</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 3: CLASSES -->
+        <section id="sectionClasses" class="academic-section" style="display: none;">
+          <div class="card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+              <div>
+                <h3 style="font-size: 1rem; font-weight: 700; color: #0f172a; margin: 0;">Academic Classes</h3>
+                <p style="font-size: 0.75rem; color: #64748b; margin: 0.1rem 0 0;">Classes segregated under General or Hifz streams.</p>
+              </div>
+
+              <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <select id="classesStreamFilter" class="form-control" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; width: auto; min-width: 130px;">
+                  <option value="">All Streams</option>
+                  <option value="General">General</option>
+                  <option value="Hifz">Hifz</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Class Name</th>
+                    <th>Stream</th>
+                    <th>Class Number</th>
+                    <th>Monthly Fee</th>
+                    <th>Class Teacher</th>
+                  </tr>
+                </thead>
+                <tbody id="classesTableBody">
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">Loading classes...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal: Add / Edit Subject -->
+  <div id="subjectModal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title" id="subjectModalTitle">Add New Subject</h3>
+        <button type="button" class="modal-close" onclick="closeModal('subjectModal')" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="subjectForm">
+        <input type="hidden" id="subjectFormId">
+        <div class="modal-body" style="gap: 0.9rem;">
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="subjStreamInput">Stream *</label>
+              <select id="subjStreamInput" class="form-control" required>
+                <option value="General">General Stream</option>
+                <option value="Hifz">Hifz Stream</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="subjClassInput">Class *</label>
+              <select id="subjClassInput" class="form-control" required>
+                <option value="">Select Class...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="subjNameInput">Subject Name *</label>
+            <input type="text" id="subjNameInput" class="form-control" placeholder="e.g. English 1st Paper" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="subjCodeInput">Subject Code</label>
+              <input type="text" id="subjCodeInput" class="form-control" placeholder="e.g. ENG101">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label" for="subjFullMarksInput">Full Marks *</label>
+              <input type="number" id="subjFullMarksInput" class="form-control" value="100" min="1" max="200" required>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('subjectModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveSubjectBtn">Save Subject</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Assign Teacher to Subject -->
+  <div id="assignModal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Assign Teacher to Subject</h3>
+        <button type="button" class="modal-close" onclick="closeModal('assignModal')" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="assignForm">
+        <input type="hidden" id="assignSubjectId">
+        <div class="modal-body" style="gap: 1rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem;">
+            <div style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Target Subject</div>
+            <div style="font-size: 1.05rem; font-weight: 800; color: #004ac6;" id="assignSubjectName">Subject</div>
+            <div style="font-size: 0.78rem; color: #475569;" id="assignSubjectClass">Class</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="assignTeacherSelect">Select Teacher to Assign *</label>
+            <select id="assignTeacherSelect" class="form-control" required>
+              <option value="">Loading teachers...</option>
+            </select>
+            <small style="color: #64748b; font-size: 0.72rem; margin-top: 0.25rem; display: block;">
+              Assigning a teacher will exclusively set them for this subject in this class.
+            </small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('assignModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="background: #004ac6;">Confirm Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+  <script src="js/api.js"></script>
+  <script src="academic.js"></script>
+  <script>
+    (function () {
+      var menuBtn = document.getElementById('mobileMenuBtn');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      var sidebar = document.querySelector('.app-sidebar');
+      if (!menuBtn || !sidebar) return;
+      function openSidebar() { sidebar.classList.add('open'); if (backdrop) backdrop.classList.add('active'); }
+      function closeSidebar() { sidebar.classList.remove('open'); if (backdrop) backdrop.classList.remove('active'); }
+      menuBtn.addEventListener('click', function () { sidebar.classList.contains('open') ? closeSidebar() : openSidebar(); });
+      if (backdrop) backdrop.addEventListener('click', closeSidebar);
+      sidebar.querySelectorAll('.nav-link').forEach(function (l) { l.addEventListener('click', function () { if (window.innerWidth <= 1024) closeSidebar(); }); });
+    })();
+  </script>
+</body>
+
+</html>

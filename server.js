@@ -109,7 +109,10 @@ export async function startServer() {
     'expenses',
     'reports',
     'settings',
-    'admin'
+    'admin',
+    'academic',
+    'examinations',
+    'result-cards'
   ];
 
   pages.forEach(page => {

@@ -1,51 +1,38 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Central API client
   const apiClient = window.api || (typeof api !== 'undefined' ? api : null);
 
   // State
   let teachersList = [];
-  let paymentsList = [];
-  let selectedTeacherForDetail = null;
-  let currentSelectedMonth = '';
+  let availableSubjects = [];
+  let selectedTeacherForPay = null;
 
   // DOM Elements - Tables & Badges
   const teachersTableBody = document.getElementById('teachersTableBody');
-  const monthlyPaymentsTableBody = document.getElementById('monthlyPaymentsTableBody');
   const paymentHistoryTableBody = document.getElementById('paymentHistoryTableBody');
   const teacherCountBadge = document.getElementById('teacherCountBadge');
 
   // DOM Elements - Top KPIs
   const kpiTotalTeachers = document.getElementById('kpiTotalTeachers');
-  const kpiTotalPayable = document.getElementById('kpiTotalPayable');
-  const kpiTodayPayment = document.getElementById('kpiTodayPayment');
+  const kpiMonthlyCommitment = document.getElementById('kpiMonthlyCommitment');
+  const kpiOutstandingAdvances = document.getElementById('kpiOutstandingAdvances');
   const kpiMonthPayment = document.getElementById('kpiMonthPayment');
-  const kpiMonthlyTitle = document.getElementById('kpiMonthlyTitle');
-  const kpiMonthSub = document.getElementById('kpiMonthSub');
 
-  // DOM Elements - Teacher Monthly Work & Payment Summary
-  const summaryTeacherFilter = document.getElementById('summaryTeacherFilter');
-  const workSummaryClasses = document.getElementById('workSummaryClasses');
-  const workSummaryKhatas = document.getElementById('workSummaryKhatas');
-  const workSummaryGuards = document.getElementById('workSummaryGuards');
-  const workSummaryPayment = document.getElementById('workSummaryPayment');
-  const workSummaryClassesSub = document.getElementById('workSummaryClassesSub');
-  const workSummaryKhatasSub = document.getElementById('workSummaryKhatasSub');
-  const workSummaryGuardsSub = document.getElementById('workSummaryGuardsSub');
-  const workSummaryPaymentSub = document.getElementById('workSummaryPaymentSub');
-  const footMonthName = document.getElementById('footMonthName');
-  const footMonthTotal = document.getElementById('footMonthTotal');
-
-  // DOM Elements - Filters & Inputs
+  // DOM Elements - Filters
   const teacherSearchInput = document.getElementById('teacherSearchInput');
-  const paymentMonthFilter = document.getElementById('paymentMonthFilter');
-  const paymentTeacherFilter = document.getElementById('paymentTeacherFilter');
-  const activityTeacherSelect = document.getElementById('activityTeacherSelect');
+  const teacherStreamFilter = document.getElementById('teacherStreamFilter');
+  const paymentLogMonthInput = document.getElementById('paymentLogMonthInput');
   const globalSearchInput = document.getElementById('globalSearchInput');
 
   // Modals
   const teacherModal = document.getElementById('teacherModal');
-  const activityModal = document.getElementById('activityModal');
+  const teacherAdvanceModal = document.getElementById('teacherAdvanceModal');
+  const payFixedSalaryModal = document.getElementById('payFixedSalaryModal');
   const teacherDetailModal = document.getElementById('teacherDetailModal');
+
+  // Forms
+  const teacherForm = document.getElementById('teacherForm');
+  const teacherAdvanceForm = document.getElementById('teacherAdvanceForm');
+  const payFixedSalaryForm = document.getElementById('payFixedSalaryForm');
 
   // Date Helpers
   function getTodayDhakaDate() {
@@ -56,14 +43,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   const todayStr = getTodayDhakaDate();
-  const activityDateInput = document.getElementById('activityDateInput');
-  if (activityDateInput) activityDateInput.value = todayStr;
+  const currentMonthStr = todayStr.substring(0, 7);
 
   const topbarDate = document.getElementById('topbarDate');
   if (topbarDate) {
     const d = new Date();
     const options = { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Dhaka' };
     topbarDate.textContent = d.toLocaleDateString('en-GB', options);
+  }
+
+  if (paymentLogMonthInput) {
+    paymentLogMonthInput.value = currentMonthStr;
   }
 
   // Modal Helpers
@@ -92,443 +82,145 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Close modals on backdrop click
-  [teacherModal, activityModal, teacherDetailModal].forEach(modalEl => {
+  [teacherModal, teacherAdvanceModal, payFixedSalaryModal, teacherDetailModal].forEach(modalEl => {
     if (modalEl) {
       modalEl.addEventListener('click', (e) => {
-        if (e.target === modalEl) {
-          hideModal(modalEl.id);
-        }
+        if (e.target === modalEl) hideModal(modalEl.id);
       });
     }
   });
 
-  // Notification helper
-  function notify(message, type = 'success') {
-    if (typeof window.showToast === 'function') {
-      window.showToast(message, type);
-    } else if (typeof showToast === 'function') {
-      showToast(message, type);
-    } else {
-      alert(message);
-    }
-  }
-
-  function showFormError(errorElementId, msg) {
-    const el = document.getElementById(errorElementId);
-    if (el) {
-      el.textContent = msg;
-      el.style.display = 'block';
-    }
-  }
-
-  function clearFormError(errorElementId) {
-    const el = document.getElementById(errorElementId);
-    if (el) {
-      el.textContent = '';
-      el.style.display = 'none';
-    }
-  }
-
-  // Navigation tabs switching
+  // Tab Switching
   document.querySelectorAll('.teachers-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.teachers-tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
-      const targetId = btn.getAttribute('data-tab');
-      const targetContent = document.getElementById(targetId);
-      if (targetContent) {
-        targetContent.style.display = 'block';
-      }
+      const tabId = btn.getAttribute('data-tab');
+      const targetContent = document.getElementById(tabId);
+      if (targetContent) targetContent.classList.add('active');
+      if (tabId === 'paymentHistoryTab') loadPaymentHistory();
     });
   });
 
-  // Modal Open/Close Buttons
-  const openAddTeacherModalBtn = document.getElementById('openAddTeacherModalBtn');
-  if (openAddTeacherModalBtn) {
-    openAddTeacherModalBtn.addEventListener('click', () => openTeacherModal());
-  }
-
-  const closeTeacherModalBtn = document.getElementById('closeTeacherModalBtn');
-  if (closeTeacherModalBtn) {
-    closeTeacherModalBtn.addEventListener('click', () => hideModal('teacherModal'));
-  }
-
-  const cancelTeacherModalBtn = document.getElementById('cancelTeacherModalBtn');
-  if (cancelTeacherModalBtn) {
-    cancelTeacherModalBtn.addEventListener('click', () => hideModal('teacherModal'));
-  }
-
-  const openActivityModalBtn = document.getElementById('openActivityModalBtn');
-  if (openActivityModalBtn) {
-    openActivityModalBtn.addEventListener('click', () => openActivityModal());
-  }
-
-  const closeActivityModalBtn = document.getElementById('closeActivityModalBtn');
-  if (closeActivityModalBtn) {
-    closeActivityModalBtn.addEventListener('click', () => hideModal('activityModal'));
-  }
-
-  const cancelActivityModalBtn = document.getElementById('cancelActivityModalBtn');
-  if (cancelActivityModalBtn) {
-    cancelActivityModalBtn.addEventListener('click', () => hideModal('activityModal'));
-  }
-
-  const closeDetailModalBtn = document.getElementById('closeDetailModalBtn');
-  if (closeDetailModalBtn) {
-    closeDetailModalBtn.addEventListener('click', () => hideModal('teacherDetailModal'));
-  }
-
-  const closeDetailBtn = document.getElementById('closeDetailBtn');
-  if (closeDetailBtn) {
-    closeDetailBtn.addEventListener('click', () => hideModal('teacherDetailModal'));
-  }
-
-  // Form Submissions
-  const teacherForm = document.getElementById('teacherForm');
-  if (teacherForm) {
-    teacherForm.addEventListener('submit', handleSaveTeacher);
-  }
-
-  const activityForm = document.getElementById('activityForm');
-  if (activityForm) {
-    activityForm.addEventListener('submit', handleSaveActivity);
-  }
-
-  // Live calculation preview in activity modal
-  ['classesTakenInput', 'khatasCheckedInput', 'guardDutiesInput', 'activityTeacherSelect'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('input', updateActivityPreview);
-      el.addEventListener('change', updateActivityPreview);
-    }
-  });
-
-  // Filter events
-  if (teacherSearchInput) {
-    teacherSearchInput.addEventListener('input', renderTeachersList);
-  }
-
-  if (globalSearchInput) {
-    globalSearchInput.addEventListener('input', (e) => {
-      if (teacherSearchInput) {
-        teacherSearchInput.value = e.target.value;
-      }
-      renderTeachersList();
-    });
-  }
-
-  let currentSelectedTeacherId = '';
-
-  if (summaryTeacherFilter) {
-    summaryTeacherFilter.addEventListener('change', (e) => {
-      currentSelectedTeacherId = e.target.value;
-      loadPaymentSummary(paymentMonthFilter ? paymentMonthFilter.value : currentSelectedMonth, currentSelectedTeacherId);
-    });
-  }
-
-  if (paymentMonthFilter) {
-    paymentMonthFilter.addEventListener('change', (e) => {
-      const selectedMonth = e.target.value;
-      if (selectedMonth) {
-        currentSelectedMonth = selectedMonth;
-        loadPaymentSummary(selectedMonth, summaryTeacherFilter ? summaryTeacherFilter.value : currentSelectedTeacherId);
-      }
-    });
-  }
-
-  if (paymentTeacherFilter) {
-    paymentTeacherFilter.addEventListener('change', renderPaymentHistory);
-  }
-
-  const payTeacherBtn = document.getElementById('payTeacherBtn');
-  if (payTeacherBtn) {
-    payTeacherBtn.addEventListener('click', handlePayTeacherFromDetailModal);
-  }
-
-  // Initial load: wait for auth, then retry a couple of times if the first attempt fails
-  (async () => {
-    if (window.authReady) { try { await window.authReady; } catch (e) { /* handled by api client */ } }
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt));
-      const ok = await loadAllData(attempt < 2); // only show the error toast on the final attempt
-      if (ok) return;
-    }
-  })();
-
-  // ====================================================
-  // DATA LOADING FUNCTIONS
-  // ====================================================
-
-  async function loadAllData(silent = false) {
+  // ----------------------------------------------------
+  // DATA LOADING
+  // ----------------------------------------------------
+  async function loadTeachers() {
     try {
-      const [tRes, pRes] = await Promise.all([
-        apiClient.get('/teachers'),
-        apiClient.get('/teacher-payments')
-      ]);
+      teachersTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">Loading faculty records...</td></tr>';
+      const res = await apiClient.get('/teachers');
+      if (!res || !res.success) throw new Error(res?.error || 'Failed to load teachers');
 
-      if (tRes && tRes.success) teachersList = tRes.data || [];
-      if (pRes && pRes.success) paymentsList = pRes.data || [];
-
+      teachersList = res.data || [];
+      if (teacherCountBadge) teacherCountBadge.textContent = `${teachersList.length} Teachers`;
+      renderTeachersTable();
       populateTeacherDropdowns();
-      renderTeachersList();
-      renderPaymentHistory();
-
-      // Load summaries concurrently
-      await Promise.all([
-        loadDashboardSummary(),
-        loadPaymentSummary(currentSelectedMonth)
-      ]);
-      return true;
-    } catch (error) {
-      console.error('Failed to load teacher data:', error);
-      if (!silent) notify('Unable to load teachers: ' + (error.message || 'Check database connection'), 'error');
-      return false;
+      loadDashboardSummary();
+    } catch (err) {
+      console.error(err);
+      teachersTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #dc2626;">Error loading teachers: ${err.message}</td></tr>`;
     }
   }
 
   async function loadDashboardSummary() {
     try {
       const res = await apiClient.get('/teachers/dashboard-summary');
-      if (res && res.success) {
+      if (res && res.success && res.data) {
         const d = res.data;
         if (kpiTotalTeachers) kpiTotalTeachers.textContent = d.totalTeachers || 0;
-        if (kpiTotalPayable) kpiTotalPayable.textContent = `৳${(d.totalPayable || 0).toLocaleString()}`;
-        if (teacherCountBadge) teacherCountBadge.textContent = `${d.totalTeachers || 0} Teachers`;
+        if (kpiMonthlyCommitment) kpiMonthlyCommitment.textContent = `৳${(d.totalFixedSalaryCommitment || 0).toLocaleString()}`;
+        if (kpiOutstandingAdvances) kpiOutstandingAdvances.textContent = `৳${(d.totalOutstandingAdvances || 0).toLocaleString()}`;
+        if (kpiMonthPayment) kpiMonthPayment.textContent = `৳${(d.totalPaidThisMonth || 0).toLocaleString()}`;
       }
     } catch (e) {
-      console.warn('Dashboard summary error:', e);
+      console.error('Error loading dashboard summary', e);
     }
   }
 
-  async function loadPaymentSummary(month = '', teacherId = '') {
-    try {
-      const m = month || currentSelectedMonth || '';
-      const tId = teacherId !== undefined && teacherId !== null ? teacherId : (summaryTeacherFilter ? summaryTeacherFilter.value : '');
-      const queryParams = [];
-      if (m) queryParams.push(`month=${encodeURIComponent(m)}`);
-      if (tId) queryParams.push(`teacher_id=${encodeURIComponent(tId)}`);
-      const queryParam = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+  function renderTeachersTable() {
+    const searchVal = (teacherSearchInput?.value || globalSearchInput?.value || '').toLowerCase().trim();
+    const streamVal = teacherStreamFilter?.value || '';
 
-      const res = await apiClient.get(`/teachers/payment-summary${queryParam}`);
+    const filtered = teachersList.filter(t => {
+      const nameMatch = (t.name || '').toLowerCase().includes(searchVal);
+      const phoneMatch = (t.phone || '').includes(searchVal) || (t.phone_secondary || '').includes(searchVal);
+      const emailMatch = (t.email || '').toLowerCase().includes(searchVal);
+      const subjectMatch = (t.assignments || []).some(a => (a.subject_name || '').toLowerCase().includes(searchVal) || (a.class_name || '').toLowerCase().includes(searchVal));
+      const matchSearch = !searchVal || nameMatch || phoneMatch || emailMatch || subjectMatch;
 
-      if (!res || !res.success || !res.data) return;
-      const d = res.data;
-      currentSelectedMonth = d.selectedMonth;
-
-      // Update KPI Cards
-      if (kpiTodayPayment) kpiTodayPayment.textContent = `৳${(d.todayPaid || 0).toLocaleString()}`;
-      if (kpiMonthPayment) kpiMonthPayment.textContent = `৳${(d.monthPaid || 0).toLocaleString()}`;
-      if (kpiMonthlyTitle) kpiMonthlyTitle.textContent = `${d.selectedMonthName} Paid`;
-      if (kpiMonthSub) kpiMonthSub.textContent = `Total paid in ${d.selectedMonthName}`;
-
-      // Update Month Selector dropdown
-      if (paymentMonthFilter && d.availableMonths && d.availableMonths.length > 0) {
-        const currentVal = paymentMonthFilter.value || d.selectedMonth;
-        paymentMonthFilter.innerHTML = d.availableMonths.map(m => `
-          <option value="${m.value}" ${m.value === currentVal ? 'selected' : ''}>${m.label}</option>
-        `).join('');
-      }
-
-      // Update 4 Work Summary Cards
-      let classesVal = d.totalClasses || 0;
-      let khatasVal = d.totalKhatas || 0;
-      let guardsVal = d.totalGuards || 0;
-      let paymentVal = d.monthPaid || 0;
-
-      let teacherLabel = 'All Teachers';
-      if (tId && d.selectedTeacherSummary) {
-        classesVal = d.selectedTeacherSummary.classes_taken || 0;
-        khatasVal = d.selectedTeacherSummary.khatas_checked || 0;
-        guardsVal = d.selectedTeacherSummary.guard_duties || 0;
-        paymentVal = d.selectedTeacherSummary.total_paid || 0;
-        teacherLabel = d.selectedTeacherSummary.teacher_name || 'Selected Teacher';
-      } else if (tId) {
-        const found = (d.teachers || []).find(t => String(t.teacher_id) === String(tId));
-        if (found) {
-          classesVal = found.classes_taken || 0;
-          khatasVal = found.khatas_checked || 0;
-          guardsVal = found.guard_duties || 0;
-          paymentVal = found.total_paid || 0;
-          teacherLabel = found.teacher_name || 'Selected Teacher';
-        }
-      }
-
-      if (workSummaryClasses) workSummaryClasses.textContent = classesVal.toLocaleString();
-      if (workSummaryKhatas) workSummaryKhatas.textContent = khatasVal.toLocaleString();
-      if (workSummaryGuards) workSummaryGuards.textContent = guardsVal.toLocaleString();
-      if (workSummaryPayment) workSummaryPayment.textContent = `৳${paymentVal.toLocaleString()}`;
-
-      const subText = `${teacherLabel} • ${d.selectedMonthName}`;
-      if (workSummaryClassesSub) workSummaryClassesSub.textContent = subText;
-      if (workSummaryKhatasSub) workSummaryKhatasSub.textContent = subText;
-      if (workSummaryGuardsSub) workSummaryGuardsSub.textContent = subText;
-      if (workSummaryPaymentSub) workSummaryPaymentSub.textContent = subText;
-
-      // Update Monthly Teacher Breakdown Table
-      renderMonthlyTeacherPaymentTable(d, tId);
-    } catch (e) {
-      console.warn('Error loading teacher payment summary:', e);
-    }
-  }
-
-  function renderMonthlyTeacherPaymentTable(d, tId = '') {
-    if (!monthlyPaymentsTableBody) return;
-
-    let teacherLabel = 'Selected Month';
-    let filteredTeachers = d.teachers || [];
-    let footTotal = d.monthPaid || 0;
-
-    if (tId) {
-      filteredTeachers = (d.teachers || []).filter(t => String(t.teacher_id) === String(tId));
-      if (filteredTeachers.length > 0) {
-        teacherLabel = filteredTeachers[0].teacher_name;
-        footTotal = filteredTeachers[0].total_paid || 0;
-      }
-    }
-
-    if (footMonthName) footMonthName.textContent = `${teacherLabel} • ${d.selectedMonthName || ''}`;
-    if (footMonthTotal) footMonthTotal.textContent = `৳${footTotal.toLocaleString()}`;
-
-    if (filteredTeachers.length === 0) {
-      monthlyPaymentsTableBody.innerHTML = `
-        <tr>
-          <td colspan="6" style="text-align: center; padding: 1.75rem; color: #64748b;">
-            No teacher work or payment records found in <strong>${d.selectedMonthName}</strong>.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    monthlyPaymentsTableBody.innerHTML = filteredTeachers.map(t => `
-      <tr>
-        <td>
-          <div style="font-weight: 700; color: #0f172a;">${t.teacher_name}</div>
-        </td>
-        <td style="color: #475569;">
-          ${t.teacher_phone ? t.teacher_phone : '<span style="color: #94a3b8;">N/A</span>'}
-        </td>
-        <td style="text-align: center; font-weight: 700; color: #0284c7;">
-          ${(t.classes_taken || 0).toLocaleString()}
-        </td>
-        <td style="text-align: center; font-weight: 700; color: #d97706;">
-          ${(t.khatas_checked || 0).toLocaleString()}
-        </td>
-        <td style="text-align: center; font-weight: 700; color: #4f46e5;">
-          ${(t.guard_duties || 0).toLocaleString()}
-        </td>
-        <td style="text-align: right; font-weight: 700; color: #16a34a; font-size: 0.90rem;">
-          ৳${(t.total_paid || 0).toLocaleString()}
-        </td>
-      </tr>
-    `).join('');
-  }
-
-  function populateTeacherDropdowns() {
-    const selects = [activityTeacherSelect, paymentTeacherFilter, summaryTeacherFilter];
-    selects.forEach(sel => {
-      if (!sel) return;
-      const currentVal = sel.value;
-      const isFilter = sel === paymentTeacherFilter || sel === summaryTeacherFilter;
-
-      sel.innerHTML = isFilter
-        ? '<option value="">All Teachers</option>'
-        : '<option value="">-- Choose Teacher --</option>';
-
-      teachersList.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = isFilter
-          ? t.name
-          : `${t.name} (Cls: ৳${t.per_class_rate}, Khata: ৳${t.per_khata_rate}, Guard: ৳${t.per_guard_rate})`;
-        sel.appendChild(opt);
-      });
-
-      sel.value = currentVal;
+      const matchStream = !streamVal || t.stream === streamVal;
+      return matchSearch && matchStream;
     });
-  }
-
-  // ====================================================
-  // TEACHER LIST RENDERING (NO EDIT BUTTON)
-  // ====================================================
-
-  function renderTeachersList() {
-    if (!teachersTableBody) return;
-
-    const search = teacherSearchInput ? teacherSearchInput.value.toLowerCase().trim() : '';
-    const filtered = teachersList.filter(t =>
-      t.name.toLowerCase().includes(search) ||
-      (t.phone && t.phone.toLowerCase().includes(search))
-    );
 
     if (filtered.length === 0) {
-      teachersTableBody.innerHTML = `
-        <tr>
-          <td colspan="5" style="text-align: center; padding: 2.25rem; color: #64748b;">
-            ${teachersList.length === 0
-          ? 'No teachers registered in the database yet. Click "Add New Teacher" above.'
-          : 'No matching teachers found.'}
-          </td>
-        </tr>
-      `;
+      teachersTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">No teachers found matching criteria.</td></tr>';
       return;
     }
 
     teachersTableBody.innerHTML = filtered.map(t => {
-      const payable = t.current_payable || 0;
-      const isNegative = payable < 0;
-      const hasPayable = payable > 0;
+      const isHifz = t.stream === 'Hifz';
+      const streamBadge = `<span style="display: inline-block; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; background: ${isHifz ? '#ecfdf5; color: #047857;' : '#e0e7ff; color: #4338ca;'}">${t.stream || 'General'}</span>`;
 
-      let badgeBg = '#dcfce7';
-      let badgeColor = '#15803d';
-      let displayPayable = `৳${payable.toLocaleString()}`;
-
-      if (hasPayable) {
-        badgeBg = '#fee2e2';
-        badgeColor = '#dc2626';
-      } else if (isNegative) {
-        badgeBg = '#fef3c7';
-        badgeColor = '#b45309';
-        displayPayable = `-৳${Math.abs(payable).toLocaleString()}`;
+      // Subjects pills
+      let assignmentsHtml = '<span style="color: #94a3b8; font-size: 0.75rem;">None assigned</span>';
+      if (t.assignments && t.assignments.length > 0) {
+        assignmentsHtml = t.assignments.map(a => `
+          <span style="display: inline-block; margin: 2px; padding: 2px 6px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.74rem; color: #334155;">
+            <strong>${a.class_name}:</strong> ${a.subject_name}
+          </span>
+        `).join('');
       }
+
+      // Phone display
+      const isSecPrimary = t.primary_contact === 'secondary';
+      const primPhone = t.phone ? `<div style="font-weight: ${isSecPrimary ? '400' : '600'}; color: #1e293b; display: flex; align-items: center; gap: 4px;">
+        <span class="material-symbols-outlined" style="font-size: 0.9rem; color: #0284c7;">call</span> ${t.phone} ${!isSecPrimary ? '<span style="font-size: 0.65rem; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px;">Primary</span>' : ''}
+      </div>` : '';
+      const secPhone = t.phone_secondary ? `<div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">
+        ${t.phone_secondary} ${isSecPrimary ? '<span style="font-size: 0.65rem; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 3px;">Primary</span>' : ''}
+      </div>` : '';
+
+      const advColor = (t.outstanding_advance || 0) > 0 ? '#dc2626' : '#16a34a';
 
       return `
         <tr>
           <td>
-            <div style="font-weight: 700; color: #0284c7; cursor: pointer;" class="view-teacher-ledger" data-id="${t.id}" title="Click to view work activity and payment history">
-              ${t.name}
-            </div>
-          </td>
-          <td style="color: #475569;">
-            ${t.phone ? t.phone : '<span style="color: #94a3b8;">N/A</span>'}
+            <div style="font-weight: 700; color: #0f172a; font-size: 0.90rem;">${t.name}</div>
+            ${t.email ? `<div style="font-size: 0.75rem; color: #64748b;">${t.email}</div>` : ''}
           </td>
           <td>
-            <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-              <span class="rate-badge">Cls: <strong>৳${t.per_class_rate}</strong></span>
-              <span class="rate-badge">Khata: <strong>৳${t.per_khata_rate}</strong></span>
-              <span class="rate-badge">Guard: <strong>৳${t.per_guard_rate}</strong></span>
-            </div>
+            ${primPhone}
+            ${secPhone}
           </td>
           <td>
-            <span class="badge-tag" style="background: ${badgeBg}; color: ${badgeColor}; font-weight: 700; font-size: 0.82rem; padding: 0.25rem 0.6rem;">
-              ${displayPayable}
-            </span>
+            <div style="margin-bottom: 4px;">${streamBadge}</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 2px;">${assignmentsHtml}</div>
+          </td>
+          <td>
+            <span style="font-weight: 700; font-size: 0.92rem; color: #1e293b;">৳${(t.fixed_salary || 0).toLocaleString()}</span>
+            <div style="font-size: 0.70rem; color: #64748b;">Monthly fixed</div>
+          </td>
+          <td>
+            <span style="font-weight: 700; font-size: 0.90rem; color: ${advColor};">৳${(t.outstanding_advance || 0).toLocaleString()}</span>
+            <div style="font-size: 0.70rem; color: #64748b;">To be adjusted</div>
           </td>
           <td style="text-align: right;">
-            <div class="action-btns" style="display: flex; gap: 0.35rem; justify-content: flex-end;">
-              ${hasPayable ? `
-                <button class="btn btn-sm btn-primary pay-direct-btn" data-id="${t.id}" title="Pay ৳${payable.toLocaleString()} to ${t.name}" style="background: #0284c7; border-color: #0284c7; font-weight: 600; padding: 0.25rem 0.65rem;">
-                  Pay
-                </button>
-              ` : `
-                <button class="btn btn-sm btn-secondary view-ledger-btn" data-id="${t.id}" title="View Ledger" style="padding: 0.25rem 0.60rem;">
-                  Ledger
-                </button>
-              `}
-              <button class="btn btn-sm btn-secondary delete-teacher-btn" data-id="${t.id}" title="Delete Teacher" style="color: #dc2626; border-color: #fecaca; padding: 0.25rem 0.60rem;">
-                Delete
+            <div style="display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-primary pay-salary-btn" data-id="${t.id}" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background: #16a34a;" title="Pay Monthly Salary">
+                Pay Salary
+              </button>
+              <button class="btn btn-sm btn-secondary advance-btn" data-id="${t.id}" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; color: #dc2626; border-color: #fca5a5;" title="Salary Advance">
+                Advance
+              </button>
+              <button class="btn btn-sm btn-secondary detail-btn" data-id="${t.id}" style="padding: 0.3rem 0.5rem; font-size: 0.75rem;" title="View Ledger">
+                Ledger
+              </button>
+              <button class="btn btn-sm btn-secondary edit-btn" data-id="${t.id}" style="padding: 0.3rem 0.45rem; font-size: 0.75rem;" title="Edit Profile & Assignments">
+                <span class="material-symbols-outlined" style="font-size: 0.95rem;">edit</span>
+              </button>
+              <button class="btn btn-sm btn-secondary delete-btn" data-id="${t.id}" data-name="${t.name}" style="padding: 0.3rem 0.45rem; font-size: 0.75rem; color: #dc2626;" title="Deactivate Teacher">
+                <span class="material-symbols-outlined" style="font-size: 0.95rem;">person_off</span>
               </button>
             </div>
           </td>
@@ -536,495 +228,580 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
     }).join('');
 
-    // Bind row action events
-    teachersTableBody.querySelectorAll('.view-teacher-ledger, .view-ledger-btn').forEach(el => {
-      el.addEventListener('click', () => openTeacherDetailModal(parseInt(el.getAttribute('data-id'), 10)));
+    // Attach Row Event Listeners
+    teachersTableBody.querySelectorAll('.pay-salary-btn').forEach(btn => {
+      btn.addEventListener('click', () => openPaySalaryModal(btn.getAttribute('data-id')));
     });
 
-    teachersTableBody.querySelectorAll('.pay-direct-btn').forEach(el => {
-      el.addEventListener('click', () => handleDirectPayTeacher(parseInt(el.getAttribute('data-id'), 10)));
+    teachersTableBody.querySelectorAll('.advance-btn').forEach(btn => {
+      btn.addEventListener('click', () => openAdvanceModal(btn.getAttribute('data-id')));
     });
 
-    teachersTableBody.querySelectorAll('.delete-teacher-btn').forEach(el => {
-      el.addEventListener('click', () => handleDeleteTeacher(parseInt(el.getAttribute('data-id'), 10)));
+    teachersTableBody.querySelectorAll('.detail-btn').forEach(btn => {
+      btn.addEventListener('click', () => openDetailModal(btn.getAttribute('data-id')));
+    });
+
+    teachersTableBody.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => openEditTeacherModal(btn.getAttribute('data-id')));
+    });
+
+    teachersTableBody.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => confirmDeactivateTeacher(btn.getAttribute('data-id'), btn.getAttribute('data-name')));
     });
   }
 
-  // ====================================================
-  // PAYMENT HISTORY LOG RENDERING
-  // ====================================================
+  function populateTeacherDropdowns() {
+    const advSelect = document.getElementById('advanceTeacherSelect');
+    const salSelect = document.getElementById('salaryTeacherSelect');
 
-  function renderPaymentHistory() {
-    if (!paymentHistoryTableBody) return;
+    const options = teachersList.map(t => `<option value="${t.id}">${t.name} (৳${(t.fixed_salary || 0).toLocaleString()}/mo - Adv: ৳${(t.outstanding_advance || 0).toLocaleString()})</option>`).join('');
 
-    const teacherIdFilter = paymentTeacherFilter ? paymentTeacherFilter.value : '';
-    const filtered = paymentsList.filter(p => {
-      if (teacherIdFilter && String(p.teacher_id) !== teacherIdFilter) return false;
-      return true;
-    });
-
-    if (filtered.length === 0) {
-      paymentHistoryTableBody.innerHTML = `
-        <tr>
-          <td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">
-            No cleared salary payment records found.
-          </td>
-        </tr>
-      `;
-      return;
-    }
-
-    paymentHistoryTableBody.innerHTML = filtered.map(p => `
-      <tr>
-        <td style="font-weight: 600; color: #334155;">${p.payment_date}</td>
-        <td><strong style="color: #0f172a;">${p.teacher_name}</strong></td>
-        <td style="color: #475569;">${p.teacher_phone || '<span style="color: #94a3b8;">N/A</span>'}</td>
-        <td style="font-weight: 700; color: #16a34a;">৳${(p.amount || 0).toLocaleString()}</td>
-        <td style="color: #475569; font-size: 0.78rem;">${p.note || 'Salary payment cleared'}</td>
-      </tr>
-    `).join('');
+    if (advSelect) advSelect.innerHTML = '<option value="">Select teacher...</option>' + options;
+    if (salSelect) salSelect.innerHTML = '<option value="">Select teacher...</option>' + options;
   }
 
-  // ====================================================
-  // ADD TEACHER (STRICTLY ADD ONLY - NO EDIT)
-  // ====================================================
+  // ----------------------------------------------------
+  // DYNAMIC SUBJECT ASSIGNMENT SELECTOR
+  // ----------------------------------------------------
+  async function loadSubjectAssignmentOptions(stream, currentTeacherId = null) {
+    const container = document.getElementById('subjectAssignmentContainer');
+    if (!container) return;
 
-  function openTeacherModal() {
-    clearFormError('teacherFormError');
-    const title = document.getElementById('teacherModalTitle');
-    const nameInput = document.getElementById('teacherNameInput');
-    const phoneInput = document.getElementById('teacherPhoneInput');
-    const pClassInput = document.getElementById('perClassRateInput');
-    const pKhataInput = document.getElementById('perKhataRateInput');
-    const pGuardInput = document.getElementById('perGuardRateInput');
-
-    if (title) title.textContent = 'Add New Teacher';
-    if (nameInput) nameInput.value = '';
-    if (phoneInput) phoneInput.value = '';
-    if (pClassInput) pClassInput.value = '100';
-    if (pKhataInput) pKhataInput.value = '5';
-    if (pGuardInput) pGuardInput.value = '150';
-
-    showModal('teacherModal');
-    if (nameInput) setTimeout(() => nameInput.focus(), 60);
-  }
-
-  async function handleSaveTeacher(e) {
-    e.preventDefault();
-    clearFormError('teacherFormError');
-
-    const name = document.getElementById('teacherNameInput').value.trim();
-    const phone = document.getElementById('teacherPhoneInput').value.trim();
-    const pClass = parseFloat(document.getElementById('perClassRateInput').value);
-    const pKhata = parseFloat(document.getElementById('perKhataRateInput').value);
-    const pGuard = parseFloat(document.getElementById('perGuardRateInput').value);
-
-    // Validation
-    if (!name) {
-      showFormError('teacherFormError', 'Please enter teacher name.');
-      document.getElementById('teacherNameInput').focus();
-      return;
-    }
-
-    if (isNaN(pClass) || pClass < 0) {
-      showFormError('teacherFormError', 'Please enter a valid per-class rate (0 or higher).');
-      document.getElementById('perClassRateInput').focus();
-      return;
-    }
-    if (isNaN(pKhata) || pKhata < 0) {
-      showFormError('teacherFormError', 'Please enter a valid per-khata rate (0 or higher).');
-      document.getElementById('perKhataRateInput').focus();
-      return;
-    }
-    if (isNaN(pGuard) || pGuard < 0) {
-      showFormError('teacherFormError', 'Please enter a valid per-guard rate (0 or higher).');
-      document.getElementById('perGuardRateInput').focus();
-      return;
-    }
-
-    const payload = {
-      name,
-      phone,
-      per_class_rate: pClass,
-      per_khata_rate: pKhata,
-      per_guard_rate: pGuard
-    };
-
-    const saveBtn = document.getElementById('saveTeacherBtn');
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
-    }
+    container.innerHTML = '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center;">Loading subjects...</p>';
 
     try {
-      const res = await apiClient.post('/teachers', payload);
-      if (res && res.success) {
-        hideModal('teacherModal');
-        notify(`Teacher "${name}" added successfully!`, 'success');
-        await loadAllData();
-      } else {
-        showFormError('teacherFormError', (res && res.error) || 'Failed to save teacher');
-      }
-    } catch (err) {
-      console.error('Error saving teacher:', err);
-      showFormError('teacherFormError', err.message || 'Unable to add teacher. Please check database connection.');
-    } finally {
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Teacher';
-      }
-    }
-  }
+      const url = `/academic/available-subjects?stream=${encodeURIComponent(stream)}${currentTeacherId ? `&teacher_id=${currentTeacherId}` : ''}`;
+      const res = await apiClient.get(url);
+      if (!res || !res.success) throw new Error(res?.error || 'Failed to fetch available subjects');
 
-  // ====================================================
-  // DELETE TEACHER
-  // ====================================================
-
-  async function handleDeleteTeacher(id) {
-    const t = teachersList.find(x => x.id === id);
-    if (!t) return;
-
-    const confirmMsg =
-      `Are you sure you want to delete teacher "${t.name}"?\n\n` +
-      `This will remove the teacher and their associated work and payment records.\n` +
-      `Student, fee, and institutional expense records will NOT be deleted.\n\n` +
-      `Click OK to proceed with deletion.`;
-
-    if (!confirm(confirmMsg)) return;
-
-    try {
-      const res = await apiClient.delete(`/teachers/${id}`);
-      if (res && res.success) {
-        notify(`Teacher "${t.name}" deleted successfully.`, 'success');
-        await loadAllData();
-      } else {
-        notify((res && res.error) || 'Failed to delete teacher', 'error');
-      }
-    } catch (e) {
-      console.error('Delete error:', e);
-      notify(e.message || 'Failed to delete teacher', 'error');
-    }
-  }
-
-  // ====================================================
-  // TEACHER PAYMENT & EXPENSE INTEGRATION
-  // ====================================================
-
-  async function handleDirectPayTeacher(teacherId) {
-    const t = teachersList.find(x => x.id === idFromParam(teacherId));
-    if (!t) return;
-
-    const payable = t.current_payable || 0;
-    if (payable <= 0) {
-      notify(`Teacher ${t.name} has no outstanding payable balance.`, 'info');
-      return;
-    }
-
-    const confirmMsg =
-      `Confirm Salary Payment to ${t.name}\n\n` +
-      `Amount: ৳${payable.toLocaleString()}\n\n` +
-      `This will:\n` +
-      `1. Record payment in ${t.name}'s payment history\n` +
-      `2. Create an institutional expense under "Teacher Salary" with description: "Salary paid to ${t.name}"\n` +
-      `3. Reset current payable to ৳0\n\n` +
-      `Click OK to clear payment.`;
-
-    if (!confirm(confirmMsg)) return;
-
-    try {
-      const res = await apiClient.post(`/teachers/${t.id}/pay`, {
-        amount: payable,
-        payment_date: getTodayDhakaDate(),
-        note: `Salary paid to ${t.name}`
-      });
-
-      if (res && res.success) {
-        notify(`Payment of ৳${payable.toLocaleString()} cleared for ${t.name}! Teacher Salary expense voucher created.`, 'success');
-        await loadAllData();
-      } else {
-        notify((res && res.error) || 'Payment failed', 'error');
-      }
-    } catch (e) {
-      console.error('Payment error:', e);
-      notify(e.message || 'Payment processing error', 'error');
-    }
-  }
-
-  // Pay button inside the teacher detail modal: pays the selected teacher's outstanding balance
-  async function handlePayTeacherFromDetailModal() {
-    if (!selectedTeacherForDetail) return;
-    const id = selectedTeacherForDetail.id;
-    await handleDirectPayTeacher(id);
-    await openTeacherDetailModal(id); // refresh the ledger/payable shown in the modal
-  }
-
-  function idFromParam(id) {
-    return typeof id === 'number' ? id : parseInt(id, 10);
-  }
-
-  // ====================================================
-  // RECORD DAILY WORK / ACTIVITY
-  // ====================================================
-
-  function openActivityModal() {
-    clearFormError('activityFormError');
-    const dateInput = document.getElementById('activityDateInput');
-    const teacherSel = document.getElementById('activityTeacherSelect');
-    const clsInput = document.getElementById('classesTakenInput');
-    const khataInput = document.getElementById('khatasCheckedInput');
-    const guardInput = document.getElementById('guardDutiesInput');
-
-    if (dateInput) dateInput.value = todayStr;
-    if (teacherSel && teacherSel.options.length > 1) {
-      teacherSel.selectedIndex = 1;
-    }
-    if (clsInput) clsInput.value = '1';
-    if (khataInput) khataInput.value = '0';
-    if (guardInput) guardInput.value = '0';
-
-    showModal('activityModal');
-    updateActivityPreview();
-  }
-
-  function updateActivityPreview() {
-    const teacherId = activityTeacherSelect ? activityTeacherSelect.value : '';
-    const cls = parseInt(document.getElementById('classesTakenInput')?.value, 10) || 0;
-    const khatas = parseInt(document.getElementById('khatasCheckedInput')?.value, 10) || 0;
-    const guards = parseInt(document.getElementById('guardDutiesInput')?.value, 10) || 0;
-
-    const teacher = teachersList.find(t => String(t.id) === String(teacherId));
-    const pClass = teacher ? (teacher.per_class_rate || 0) : 0;
-    const pKhata = teacher ? (teacher.per_khata_rate || 0) : 0;
-    const pGuard = teacher ? (teacher.per_guard_rate || 0) : 0;
-
-    const cAmt = cls * pClass;
-    const kAmt = khatas * pKhata;
-    const gAmt = guards * pGuard;
-    const total = cAmt + kAmt + gAmt;
-
-    const pClassEl = document.getElementById('previewClassCalc');
-    const pKhataEl = document.getElementById('previewKhataCalc');
-    const pGuardEl = document.getElementById('previewGuardCalc');
-    const pTotalEl = document.getElementById('previewTotalCalc');
-
-    if (pClassEl) pClassEl.textContent = `Classes: ${cls} × ৳${pClass} = ৳${cAmt.toLocaleString()}`;
-    if (pKhataEl) pKhataEl.textContent = `Khatas: ${khatas} × ৳${pKhata} = ৳${kAmt.toLocaleString()}`;
-    if (pGuardEl) pGuardEl.textContent = `Guards: ${guards} × ৳${pGuard} = ৳${gAmt.toLocaleString()}`;
-    if (pTotalEl) pTotalEl.textContent = `Daily Total = ৳${total.toLocaleString()}`;
-  }
-
-  async function handleSaveActivity(e) {
-    e.preventDefault();
-    clearFormError('activityFormError');
-
-    const teacherId = document.getElementById('activityTeacherSelect').value;
-    const activityDate = document.getElementById('activityDateInput').value;
-    const classesTaken = parseInt(document.getElementById('classesTakenInput').value, 10) || 0;
-    const khatasChecked = parseInt(document.getElementById('khatasCheckedInput').value, 10) || 0;
-    const guardDuties = parseInt(document.getElementById('guardDutiesInput').value, 10) || 0;
-
-    if (!activityDate) {
-      showFormError('activityFormError', 'Please choose an activity date.');
-      return;
-    }
-
-    if (!teacherId) {
-      showFormError('activityFormError', 'Please select a teacher.');
-      return;
-    }
-
-    const payload = {
-      teacher_id: teacherId,
-      activity_date: activityDate,
-      classes_taken: classesTaken,
-      khatas_checked: khatasChecked,
-      guard_duties: guardDuties
-    };
-
-    const saveBtn = document.getElementById('saveActivityBtn');
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving...';
-    }
-
-    try {
-      const res = await apiClient.post('/teacher-activities', payload);
-      if (res && res.success) {
-        hideModal('activityModal');
-        notify('Daily activity recorded successfully!', 'success');
-        await loadAllData();
-      } else {
-        showFormError('activityFormError', (res && res.error) || 'Failed to save activity');
-      }
-    } catch (err) {
-      console.error('Error saving activity:', err);
-      showFormError('activityFormError', err.message || 'Unable to save activity.');
-    } finally {
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save Activity';
-      }
-    }
-  }
-
-  // ====================================================
-  // TEACHER DETAILED SUMMARY & LEDGER MODAL
-  // ====================================================
-
-  async function openTeacherDetailModal(teacherId) {
-    try {
-      const res = await apiClient.get(`/teachers/${teacherId}`);
-      if (!res || !res.success) {
-        notify((res && res.error) || 'Teacher not found', 'error');
+      availableSubjects = res.data || [];
+      if (availableSubjects.length === 0) {
+        container.innerHTML = `<p style="font-size: 0.8rem; color: #64748b; text-align: center;">No subjects configured yet for ${stream} stream.</p>`;
         return;
       }
-      selectedTeacherForDetail = res.data;
-      const t = selectedTeacherForDetail;
 
-      const dName = document.getElementById('detailTeacherName');
-      const dWork = document.getElementById('detailWorkSummary');
-      const dEarned = document.getElementById('detailTotalEarned');
-      const dPayable = document.getElementById('detailCurrentPayable');
+      // Group subjects by class
+      const classMap = new Map();
+      availableSubjects.forEach(s => {
+        const cKey = `${s.class_id}_${s.class_name}`;
+        if (!classMap.has(cKey)) classMap.set(cKey, []);
+        classMap.get(cKey).push(s);
+      });
 
-      if (dName) dName.textContent = `${t.name} • Ledger & Summary`;
-      if (dWork) dWork.textContent = `${t.total_classes || 0} Cls | ${t.total_khatas || 0} Khatas | ${t.total_guards || 0} Guards`;
-      if (dEarned) dEarned.textContent = `৳${(t.total_earned || 0).toLocaleString()}`;
-      if (dPayable) {
-        const curPay = t.current_payable || 0;
-        if (curPay < 0) {
-          dPayable.textContent = `-৳${Math.abs(curPay).toLocaleString()} (Advance)`;
-          dPayable.style.color = '#b45309';
-        } else {
-          dPayable.textContent = `৳${curPay.toLocaleString()}`;
-          dPayable.style.color = curPay > 0 ? '#dc2626' : '#15803d';
-        }
+      let html = '';
+      classMap.forEach((subjs, cKey) => {
+        const className = subjs[0]?.class_name || 'Class';
+        html += `
+          <div style="margin-bottom: 0.75rem;">
+            <div style="font-weight: 700; font-size: 0.80rem; color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2rem; margin-bottom: 0.4rem;">
+              ${className}
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.35rem;">
+        `;
+
+        subjs.forEach(sub => {
+          const isConflict = sub.is_assigned_to_other;
+          const isAssignedToThis = sub.is_assigned_to_current;
+          const disabledAttr = isConflict ? 'disabled' : '';
+          const checkedAttr = isAssignedToThis ? 'checked' : '';
+
+          let badge = '';
+          if (isConflict) {
+            badge = `<span style="font-size: 0.65rem; color: #dc2626; background: #fee2e2; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Assigned to ${sub.assigned_teacher_name}</span>`;
+          } else if (isAssignedToThis) {
+            badge = `<span style="font-size: 0.65rem; color: #15803d; background: #dcfce7; padding: 1px 4px; border-radius: 3px; margin-left: 4px;">Assigned</span>`;
+          }
+
+          html += `
+            <label style="display: flex; align-items: flex-start; gap: 0.35rem; font-size: 0.78rem; color: ${isConflict ? '#94a3b8' : '#334155'}; cursor: ${isConflict ? 'not-allowed' : 'pointer'}; padding: 0.2rem; border-radius: 4px;">
+              <input type="checkbox" name="subjectAssignment" value="${sub.id}" ${checkedAttr} ${disabledAttr} style="margin-top: 2px;">
+              <span><strong>${sub.name}</strong> ${badge}</span>
+            </label>
+          `;
+        });
+
+        html += '</div></div>';
+      });
+
+      container.innerHTML = html;
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = `<p style="font-size: 0.8rem; color: #dc2626; text-align: center;">Error loading subjects: ${err.message}</p>`;
+    }
+  }
+
+  // Stream change in Teacher modal updates subject options
+  const teacherStreamSelect = document.getElementById('teacherStreamSelect');
+  if (teacherStreamSelect) {
+    teacherStreamSelect.addEventListener('change', () => {
+      const editId = document.getElementById('teacherEditId')?.value || null;
+      loadSubjectAssignmentOptions(teacherStreamSelect.value, editId);
+    });
+  }
+
+  // ----------------------------------------------------
+  // ADD / EDIT TEACHER MODAL ACTIONS
+  // ----------------------------------------------------
+  const openAddTeacherModalBtn = document.getElementById('openAddTeacherModalBtn');
+  if (openAddTeacherModalBtn) {
+    openAddTeacherModalBtn.addEventListener('click', () => {
+      teacherForm.reset();
+      document.getElementById('teacherEditId').value = '';
+      document.getElementById('teacherModalTitle').textContent = 'Add New Teacher';
+      document.getElementById('teacherFormError').style.display = 'none';
+      const streamVal = teacherStreamSelect ? teacherStreamSelect.value : 'General';
+      loadSubjectAssignmentOptions(streamVal, null);
+      showModal('teacherModal');
+    });
+  }
+
+  const cancelTeacherModalBtn = document.getElementById('cancelTeacherModalBtn');
+  const closeTeacherModalBtn = document.getElementById('closeTeacherModalBtn');
+  [cancelTeacherModalBtn, closeTeacherModalBtn].forEach(b => {
+    if (b) b.addEventListener('click', () => hideModal('teacherModal'));
+  });
+
+  async function openEditTeacherModal(id) {
+    try {
+      const res = await apiClient.get(`/teachers/${id}`);
+      if (!res || !res.success || !res.data) throw new Error(res?.error || 'Teacher not found');
+
+      const t = res.data;
+      document.getElementById('teacherEditId').value = t.id;
+      document.getElementById('teacherModalTitle').textContent = `Edit Teacher: ${t.name}`;
+      document.getElementById('teacherNameInput').value = t.name || '';
+      document.getElementById('teacherEmailInput').value = t.email || '';
+      document.getElementById('teacherPhoneInput').value = t.phone || '';
+      document.getElementById('teacherPhoneSecInput').value = t.phone_secondary || '';
+      document.getElementById('fixedSalaryInput').value = t.fixed_salary || '';
+
+      if (teacherStreamSelect) teacherStreamSelect.value = t.stream || 'General';
+
+      // Primary contact radio
+      const radios = document.getElementsByName('primaryContactRadio');
+      radios.forEach(r => {
+        r.checked = (r.value === (t.primary_contact || 'primary'));
+      });
+
+      document.getElementById('teacherFormError').style.display = 'none';
+      await loadSubjectAssignmentOptions(t.stream || 'General', t.id);
+      showModal('teacherModal');
+    } catch (e) {
+      alert(`Error loading teacher: ${e.message}`);
+    }
+  }
+
+  // Teacher Form Submit
+  if (teacherForm) {
+    teacherForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('teacherFormError');
+      errBox.style.display = 'none';
+
+      const editId = document.getElementById('teacherEditId').value;
+      const name = document.getElementById('teacherNameInput').value.trim();
+      const email = document.getElementById('teacherEmailInput').value.trim();
+      const phone = document.getElementById('teacherPhoneInput').value.trim();
+      const phoneSec = document.getElementById('teacherPhoneSecInput').value.trim();
+      const fixedSalary = parseFloat(document.getElementById('fixedSalaryInput').value) || 0;
+      const stream = teacherStreamSelect.value;
+
+      let primaryContact = 'primary';
+      document.getElementsByName('primaryContactRadio').forEach(r => {
+        if (r.checked) primaryContact = r.value;
+      });
+
+      // Gather checked subjects
+      const checkedBoxes = document.querySelectorAll('input[name="subjectAssignment"]:checked');
+      const assignedSubjectIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value, 10));
+
+      if (!name) {
+        errBox.textContent = 'Teacher full name is required';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (!phone) {
+        errBox.textContent = 'Primary contact number is required';
+        errBox.style.display = 'block';
+        return;
       }
 
-      const payBtn = document.getElementById('payTeacherBtn');
-      const payLabel = document.getElementById('payBtnLabel');
-      const payable = t.current_payable || 0;
+      const payload = {
+        name,
+        email,
+        phone,
+        phone_secondary: phoneSec,
+        primary_contact: primaryContact,
+        fixed_salary: fixedSalary,
+        stream,
+        assigned_subject_ids: assignedSubjectIds
+      };
 
-      if (payable <= 0) {
-        if (payLabel) payLabel.textContent = 'Pay Outstanding (৳0)';
-        if (payBtn) {
-          payBtn.setAttribute('disabled', 'true');
-          payBtn.style.opacity = '0.5';
-          payBtn.style.cursor = 'not-allowed';
+      try {
+        let res;
+        if (editId) {
+          res = await apiClient.put(`/teachers/${editId}`, payload);
+        } else {
+          res = await apiClient.post('/teachers', payload);
         }
+
+        if (!res || !res.success) throw new Error(res?.error || 'Failed to save teacher');
+
+        if (window.showToast) window.showToast(res.message || 'Teacher saved successfully');
+        hideModal('teacherModal');
+        await loadTeachers();
+      } catch (err) {
+        console.error(err);
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      }
+    });
+  }
+
+  // Deactivate Teacher
+  async function confirmDeactivateTeacher(id, name) {
+    if (!confirm(`Are you sure you want to deactivate teacher "${name}"? Historical salary, payment, and examination records will remain preserved.`)) {
+      return;
+    }
+    try {
+      const res = await apiClient.delete(`/teachers/${id}`);
+      if (!res || !res.success) throw new Error(res?.error || 'Failed to deactivate teacher');
+      if (window.showToast) window.showToast(res.message || 'Teacher deactivated');
+      await loadTeachers();
+    } catch (e) {
+      alert(`Error deactivating teacher: ${e.message}`);
+    }
+  }
+
+  // ----------------------------------------------------
+  // SALARY ADVANCE MODAL
+  // ----------------------------------------------------
+  const openTeacherAdvanceModalBtn = document.getElementById('openTeacherAdvanceModalBtn');
+  if (openTeacherAdvanceModalBtn) {
+    openTeacherAdvanceModalBtn.addEventListener('click', () => openAdvanceModal());
+  }
+
+  const cancelTeacherAdvanceBtn = document.getElementById('cancelTeacherAdvanceBtn');
+  const closeTeacherAdvanceModalBtn = document.getElementById('closeTeacherAdvanceModalBtn');
+  [cancelTeacherAdvanceBtn, closeTeacherAdvanceModalBtn].forEach(b => {
+    if (b) b.addEventListener('click', () => hideModal('teacherAdvanceModal'));
+  });
+
+  function openAdvanceModal(teacherId = null) {
+    teacherAdvanceForm.reset();
+    document.getElementById('advanceDateInput').value = todayStr;
+    document.getElementById('teacherAdvanceFormError').style.display = 'none';
+
+    if (teacherId) {
+      const sel = document.getElementById('advanceTeacherSelect');
+      if (sel) sel.value = teacherId;
+    }
+    showModal('teacherAdvanceModal');
+  }
+
+  if (teacherAdvanceForm) {
+    teacherAdvanceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('teacherAdvanceFormError');
+      errBox.style.display = 'none';
+
+      const teacherId = document.getElementById('advanceTeacherSelect').value;
+      const amount = parseFloat(document.getElementById('advanceAmountInput').value);
+      const date = document.getElementById('advanceDateInput').value;
+      const paymentMethod = document.getElementById('advancePaymentMethod').value;
+      const note = document.getElementById('advanceNoteInput').value.trim();
+
+      if (!teacherId) {
+        errBox.textContent = 'Please select a teacher';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (isNaN(amount) || amount <= 0) {
+        errBox.textContent = 'Please enter a valid advance amount';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await apiClient.post(`/teachers/${teacherId}/advance`, {
+          amount,
+          advance_date: date,
+          payment_method: paymentMethod,
+          note
+        });
+
+        if (!res || !res.success) throw new Error(res?.error || 'Failed to record advance');
+
+        if (window.showToast) window.showToast(res.message || 'Advance disbursed successfully');
+        hideModal('teacherAdvanceModal');
+        await loadTeachers();
+      } catch (err) {
+        console.error(err);
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      }
+    });
+  }
+
+  // ----------------------------------------------------
+  // PAY MONTHLY FIXED SALARY MODAL
+  // ----------------------------------------------------
+  const openPaySalaryModalBtn = document.getElementById('openPaySalaryModalBtn');
+  if (openPaySalaryModalBtn) {
+    openPaySalaryModalBtn.addEventListener('click', () => openPaySalaryModal());
+  }
+
+  const cancelPaySalaryBtn = document.getElementById('cancelPaySalaryBtn');
+  const closePaySalaryModalBtn = document.getElementById('closePaySalaryModalBtn');
+  [cancelPaySalaryBtn, closePaySalaryModalBtn].forEach(b => {
+    if (b) b.addEventListener('click', () => hideModal('payFixedSalaryModal'));
+  });
+
+  function openPaySalaryModal(teacherId = null) {
+    payFixedSalaryForm.reset();
+    document.getElementById('salaryMonthInput').value = currentMonthStr;
+    document.getElementById('salaryPayDateInput').value = todayStr;
+    document.getElementById('paySalaryFormError').style.display = 'none';
+
+    if (teacherId) {
+      const sel = document.getElementById('salaryTeacherSelect');
+      if (sel) sel.value = teacherId;
+    }
+    updatePaySalaryPreview();
+    showModal('payFixedSalaryModal');
+  }
+
+  const salaryTeacherSelect = document.getElementById('salaryTeacherSelect');
+  if (salaryTeacherSelect) {
+    salaryTeacherSelect.addEventListener('change', updatePaySalaryPreview);
+  }
+
+  function updatePaySalaryPreview() {
+    const teacherId = parseInt(salaryTeacherSelect?.value, 10);
+    const teacher = teachersList.find(t => t.id === teacherId);
+
+    const prevFixed = document.getElementById('previewFixedSalary');
+    const prevAdv = document.getElementById('previewOutstandingAdvance');
+    const prevDed = document.getElementById('previewAdvanceDeducted');
+    const prevNet = document.getElementById('previewNetPayable');
+
+    if (!teacher) {
+      if (prevFixed) prevFixed.textContent = '৳0';
+      if (prevAdv) prevAdv.textContent = '৳0';
+      if (prevDed) prevDed.textContent = '৳0';
+      if (prevNet) prevNet.textContent = '৳0';
+      return;
+    }
+
+    const fixed = teacher.fixed_salary || 0;
+    const outstanding = teacher.outstanding_advance || 0;
+    const deducted = Math.min(fixed, outstanding);
+    const net = fixed - deducted;
+
+    if (prevFixed) prevFixed.textContent = `৳${fixed.toLocaleString()}`;
+    if (prevAdv) prevAdv.textContent = `৳${outstanding.toLocaleString()}`;
+    if (prevDed) prevDed.textContent = `৳${deducted.toLocaleString()}`;
+    if (prevNet) prevNet.textContent = `৳${net.toLocaleString()}`;
+  }
+
+  if (payFixedSalaryForm) {
+    payFixedSalaryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('paySalaryFormError');
+      errBox.style.display = 'none';
+
+      const teacherId = document.getElementById('salaryTeacherSelect').value;
+      const month = document.getElementById('salaryMonthInput').value;
+      const payDate = document.getElementById('salaryPayDateInput').value;
+      const paymentMethod = document.getElementById('salaryPaymentMethod').value;
+      const note = document.getElementById('salaryNoteInput').value.trim();
+
+      if (!teacherId) {
+        errBox.textContent = 'Please select a teacher';
+        errBox.style.display = 'block';
+        return;
+      }
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        errBox.textContent = 'Please select a valid salary month';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await apiClient.post(`/teachers/${teacherId}/pay-fixed`, {
+          salary_month: month,
+          payment_date: payDate,
+          payment_method: paymentMethod,
+          note
+        });
+
+        if (!res || !res.success) throw new Error(res?.error || 'Failed to process salary payment');
+
+        if (window.showToast) window.showToast(res.message || 'Salary disbursed successfully');
+        hideModal('payFixedSalaryModal');
+        await loadTeachers();
+      } catch (err) {
+        console.error(err);
+        errBox.textContent = err.message;
+        errBox.style.display = 'block';
+      }
+    });
+  }
+
+  // ----------------------------------------------------
+  // TEACHER DETAIL / LEDGER MODAL
+  // ----------------------------------------------------
+  const closeDetailBtn = document.getElementById('closeDetailBtn');
+  const closeDetailModalBtn = document.getElementById('closeDetailModalBtn');
+  [closeDetailBtn, closeDetailModalBtn].forEach(b => {
+    if (b) b.addEventListener('click', () => hideModal('teacherDetailModal'));
+  });
+
+  async function openDetailModal(teacherId) {
+    try {
+      const res = await apiClient.get(`/teachers/${teacherId}`);
+      if (!res || !res.success || !res.data) throw new Error(res?.error || 'Teacher not found');
+
+      const t = res.data;
+      document.getElementById('detailTeacherName').textContent = `${t.name} (${t.stream || 'General'} Faculty)`;
+      document.getElementById('detailFixedSalary').textContent = `৳${(t.fixed_salary || 0).toLocaleString()}`;
+      document.getElementById('detailOutstandingAdvance').textContent = `৳${(t.outstanding_advance || 0).toLocaleString()}`;
+      document.getElementById('detailTotalNetPaid').textContent = `৳${(t.total_salary_paid || 0).toLocaleString()}`;
+
+      // Assignments
+      const assignContainer = document.getElementById('detailAssignmentsList');
+      if (t.assignments && t.assignments.length > 0) {
+        assignContainer.innerHTML = t.assignments.map(a => `
+          <span style="background: #e2e8f0; color: #1e293b; padding: 2px 6px; border-radius: 4px; font-weight: 600;">
+            ${a.class_name}: ${a.subject_name}
+          </span>
+        `).join('');
       } else {
-        if (payLabel) payLabel.textContent = `Pay Outstanding (৳${payable.toLocaleString()})`;
-        if (payBtn) {
-          payBtn.removeAttribute('disabled');
-          payBtn.style.opacity = '1';
-          payBtn.style.cursor = 'pointer';
-        }
+        assignContainer.innerHTML = '<span style="color: #64748b;">No active subject assignments</span>';
       }
 
-      // Populate recent activities in modal
-      const actBody = document.getElementById('detailActivityHistoryBody');
-      if (actBody) {
-        if (!t.activities || t.activities.length === 0) {
-          actBody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 0.75rem; color: #64748b;">No activities recorded yet</td></tr>`;
-        } else {
-          actBody.innerHTML = t.activities.slice(0, 10).map(a => `
-            <tr>
-              <td>${a.activity_date}</td>
-              <td>${a.classes_taken} (৳${a.per_class_rate})</td>
-              <td>${a.khatas_checked} (৳${a.per_khata_rate})</td>
-              <td>${a.guard_duties} (৳${a.per_guard_rate})</td>
-              <td style="font-weight: 700; color: #0284c7;">৳${(a.daily_total || 0).toLocaleString()}</td>
-            </tr>
-          `).join('');
-        }
+      // Salary Payments Table
+      const salBody = document.getElementById('detailSalaryPaymentsBody');
+      if (t.salary_payments && t.salary_payments.length > 0) {
+        salBody.innerHTML = t.salary_payments.map(p => `
+          <tr>
+            <td><strong>${p.salary_month}</strong></td>
+            <td>${p.payment_date}</td>
+            <td>৳${(p.fixed_salary || 0).toLocaleString()}</td>
+            <td style="color: #b45309;">-৳${(p.advance_deducted || 0).toLocaleString()}</td>
+            <td style="color: #16a34a; font-weight: 700;">৳${(p.net_paid || 0).toLocaleString()}</td>
+            <td>${p.payment_method || 'Cash'}</td>
+          </tr>
+        `).join('');
+      } else {
+        salBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 0.75rem; color: #64748b;">No salary payments yet</td></tr>';
       }
 
-      // Populate payment history in modal
-      const histBody = document.getElementById('detailPaymentHistoryBody');
-      if (histBody) {
-        if (!t.payments || t.payments.length === 0) {
-          histBody.innerHTML = `<tr><td colspan="3" style="text-align: center; padding: 0.75rem; color: #64748b;">No payment history recorded yet</td></tr>`;
-        } else {
-          histBody.innerHTML = t.payments.map(p => `
-            <tr>
-              <td style="font-weight: 500;">${p.payment_date}</td>
-              <td style="font-weight: 700; color: #16a34a;">৳${(p.amount || 0).toLocaleString()}</td>
-              <td style="color: #475569;">${p.note || 'Salary payment cleared'}</td>
-            </tr>
-          `).join('');
-        }
+      // Advances Table
+      const advBody = document.getElementById('detailAdvancesBody');
+      if (t.advances && t.advances.length > 0) {
+        advBody.innerHTML = t.advances.map(a => `
+          <tr>
+            <td>${a.advance_date}</td>
+            <td style="color: #dc2626; font-weight: 700;">৳${(a.amount || 0).toLocaleString()}</td>
+            <td>
+              <span style="padding: 1px 5px; border-radius: 3px; font-size: 0.70rem; font-weight: 700; ${a.is_recovered ? 'background: #dcfce7; color: #15803d;' : 'background: #fee2e2; color: #b91c1c;'}">
+                ${a.is_recovered ? 'Recovered' : 'Outstanding'}
+              </span>
+            </td>
+            <td>${a.note || 'Salary Advance'}</td>
+          </tr>
+        `).join('');
+      } else {
+        advBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 0.75rem; color: #64748b;">No advances taken</td></tr>';
       }
 
       showModal('teacherDetailModal');
     } catch (e) {
-      console.error('Error opening teacher detail:', e);
-      notify(e.message || 'Error loading teacher details', 'error');
+      alert(`Error loading teacher ledger: ${e.message}`);
     }
   }
 
-
-
-  const openTeacherAdvanceModalBtn = document.getElementById('openTeacherAdvanceModalBtn');
-  if (openTeacherAdvanceModalBtn) {
-    openTeacherAdvanceModalBtn.addEventListener('click', () => {
-      clearFormError('teacherAdvanceFormError');
-      const dateInput = document.getElementById('advanceDateInput');
-      if (dateInput) dateInput.value = getTodayDhakaDate();
-
-      const sel = document.getElementById('advanceTeacherSelect');
-      if (sel) {
-        sel.innerHTML = '<option value="">Select teacher...</option>' + teachersList.map(t => `<option value="${t.id}">${t.name} (Payable: ৳${(t.current_payable || 0).toLocaleString()})</option>`).join('');
-      }
-      showModal('teacherAdvanceModal');
-    });
-  }
-
-  const closeTeacherAdvanceModalBtn = document.getElementById('closeTeacherAdvanceModalBtn');
-  const cancelTeacherAdvanceBtn = document.getElementById('cancelTeacherAdvanceBtn');
-  [closeTeacherAdvanceModalBtn, cancelTeacherAdvanceBtn].forEach(el => {
-    if (el) el.addEventListener('click', () => hideModal('teacherAdvanceModal'));
-  });
-
-  const teacherAdvanceForm = document.getElementById('teacherAdvanceForm');
-  if (teacherAdvanceForm) {
-    teacherAdvanceForm.addEventListener('submit', handleSaveTeacherAdvance);
-  }
-
-  async function handleSaveTeacherAdvance(e) {
-    e.preventDefault();
-    clearFormError('teacherAdvanceFormError');
-
-    const teacherId = document.getElementById('advanceTeacherSelect').value;
-    const amount = parseFloat(document.getElementById('advanceAmountInput').value);
-    const paymentDate = document.getElementById('advanceDateInput').value;
-    const note = document.getElementById('advanceNoteInput').value.trim();
-
-    if (!teacherId) {
-      showFormError('teacherAdvanceFormError', 'Please select a teacher.');
-      return;
-    }
-    if (isNaN(amount) || amount <= 0) {
-      showFormError('teacherAdvanceFormError', 'Please enter a valid advance amount.');
-      return;
-    }
-
+  // ----------------------------------------------------
+  // TAB 2: PAYMENT & ADVANCE HISTORY LOG
+  // ----------------------------------------------------
+  async function loadPaymentHistory() {
     try {
-      const res = await apiClient.post(`/teachers/${teacherId}/pay`, {
-        amount,
-        payment_date: paymentDate || getTodayDhakaDate(),
-        note: note || 'Teacher Advance Payment'
+      paymentHistoryTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">Loading payment log...</td></tr>';
+      const monthVal = paymentLogMonthInput?.value || '';
+
+      const [advRes, payRes] = await Promise.all([
+        apiClient.get('/teachers/advance-statement'),
+        apiClient.get(`/teachers/payment-summary?month=${monthVal}`)
+      ]);
+
+      const advances = (advRes && advRes.advances) ? advRes.advances : [];
+      const teachersData = (payRes && payRes.data && payRes.data.teachers) ? payRes.data.teachers : [];
+
+      const rows = [];
+
+      // Collect advances
+      advances.forEach(a => {
+        if (!monthVal || (a.date && a.date.startsWith(monthVal))) {
+          rows.push({
+            date: a.date,
+            teacher_name: a.teacher_name,
+            type: '<span style="background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">Advance</span>',
+            desc: a.note || 'Disbursed Advance',
+            gross: '-',
+            adj: '-',
+            net: `<strong style="color: #dc2626;">৳${(a.amount || 0).toLocaleString()}</strong>`
+          });
+        }
       });
 
-      if (res && res.success) {
-        notify(res.message || 'Advance payment posted successfully!', 'success');
-        hideModal('teacherAdvanceModal');
-        document.getElementById('teacherAdvanceForm').reset();
-        await loadAllData();
-      } else {
-        showFormError('teacherAdvanceFormError', res?.error || 'Failed to post advance payment.');
+      // Collect paid salaries
+      teachersData.filter(t => t.is_paid).forEach(t => {
+        rows.push({
+          date: t.payment_date || monthVal,
+          teacher_name: t.teacher_name,
+          type: '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">Fixed Salary</span>',
+          desc: `Salary for ${monthVal}`,
+          gross: `৳${(t.fixed_salary || 0).toLocaleString()}`,
+          adj: t.advance_deducted > 0 ? `<span style="color: #b45309;">-৳${t.advance_deducted.toLocaleString()}</span>` : '৳0',
+          net: `<strong style="color: #16a34a;">৳${(t.net_paid || 0).toLocaleString()}</strong>`
+        });
+      });
+
+      rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+      if (rows.length === 0) {
+        paymentHistoryTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">No salary payments or advances recorded for this period.</td></tr>';
+        return;
       }
-    } catch (err) {
-      console.error('Advance payment error:', err);
-      showFormError('teacherAdvanceFormError', err.message || 'Failed to post advance payment.');
+
+      paymentHistoryTableBody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td><strong>${r.teacher_name}</strong></td>
+          <td>${r.type}</td>
+          <td>${r.desc}</td>
+          <td>${r.gross}</td>
+          <td>${r.adj}</td>
+          <td>${r.net}</td>
+        </tr>
+      `).join('');
+
+    } catch (e) {
+      console.error(e);
+      paymentHistoryTableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #dc2626;">Error loading log: ${e.message}</td></tr>`;
     }
   }
+
+  if (paymentLogMonthInput) {
+    paymentLogMonthInput.addEventListener('change', loadPaymentHistory);
+  }
+
+  // Search and filter listeners
+  if (teacherSearchInput) teacherSearchInput.addEventListener('input', renderTeachersTable);
+  if (globalSearchInput) globalSearchInput.addEventListener('input', renderTeachersTable);
+  if (teacherStreamFilter) teacherStreamFilter.addEventListener('change', renderTeachersTable);
+
+  // Initial Load
+  loadTeachers();
 });
