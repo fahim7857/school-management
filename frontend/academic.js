@@ -7,16 +7,16 @@ let availableTeachers = [];
 
 const apiClient = window.api || (typeof api !== 'undefined' ? api : {
   get: (url, p) => {
-    let full = '/admission_3/api' + url;
+    let full = '/abms/api' + url;
     if (p && Object.keys(p).length) {
       const q = new URLSearchParams(p).toString();
       full += (full.includes('?') ? '&' : '?') + q;
     }
     return (window.authFetch ? window.authFetch(full) : fetch(full)).then(r => r.json());
   },
-  post: (url, b) => (window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
-  put: (url, b) => (window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/admission_3/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
-  delete: (url) => (window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'DELETE' }) : fetch('/admission_3/api' + url, { method: 'DELETE' })).then(r => r.json())
+  post: (url, b) => (window.authFetch ? window.authFetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
+  put: (url, b) => (window.authFetch ? window.authFetch('/abms/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/abms/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
+  delete: (url) => (window.authFetch ? window.authFetch('/abms/api' + url, { method: 'DELETE' }) : fetch('/abms/api' + url, { method: 'DELETE' })).then(r => r.json())
 });
 
 function escapeHtml(str) {

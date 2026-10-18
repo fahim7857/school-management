@@ -7,14 +7,14 @@ let activeClasses = [];
 
 const apiClient = window.api || (typeof api !== 'undefined' ? api : {
   get: (url, p) => {
-    let full = '/admission_3/api' + url;
+    let full = '/abms/api' + url;
     if (p && Object.keys(p).length) {
       const q = new URLSearchParams(p).toString();
       full += (full.includes('?') ? '&' : '?') + q;
     }
     return (window.authFetch ? window.authFetch(full) : fetch(full)).then(r => r.json());
   },
-  post: (url, b) => (window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json())
+  post: (url, b) => (window.authFetch ? window.authFetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json())
 });
 
 function escapeHtml(str) {
@@ -75,11 +75,11 @@ function notify(message, type = 'info') {
 function calculateGradeAndGpa(score) {
   const s = Math.round(score * 2) / 2;
   if (s >= 90) return { grade: 'A+', gpa: '5.00' };
-  if (s >= 80) return { grade: 'A',  gpa: '4.50' };
+  if (s >= 80) return { grade: 'A', gpa: '4.50' };
   if (s >= 70) return { grade: 'B+', gpa: '4.00' };
-  if (s >= 60) return { grade: 'B',  gpa: '3.00' };
-  if (s >= 50) return { grade: 'C',  gpa: '2.00' };
-  if (s >= 40) return { grade: 'D',  gpa: '1.00' };
+  if (s >= 60) return { grade: 'B', gpa: '3.00' };
+  if (s >= 50) return { grade: 'C', gpa: '2.00' };
+  if (s >= 40) return { grade: 'D', gpa: '1.00' };
   return { grade: 'F', gpa: '0.00' };
 }
 

@@ -5,10 +5,10 @@ let staffList = [];
 let selectedStaffForDetail = null;
 
 const apiClient = window.api || (typeof api !== 'undefined' ? api : {
-  get: (url, p) => window.authFetch ? window.authFetch('/admission_3/api' + url).then(r => r.json()) : fetch('/admission_3/api' + url).then(r => r.json()),
-  post: (url, b) => window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()) : fetch('/admission_3/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
-  put: (url, b) => window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()) : fetch('/admission_3/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
-  delete: (url) => window.authFetch ? window.authFetch('/admission_3/api' + url, { method: 'DELETE' }).then(r => r.json()) : fetch('/admission_3/api' + url, { method: 'DELETE' }).then(r => r.json())
+  get: (url, p) => window.authFetch ? window.authFetch('/abms/api' + url).then(r => r.json()) : fetch('/abms/api' + url).then(r => r.json()),
+  post: (url, b) => window.authFetch ? window.authFetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()) : fetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+  put: (url, b) => window.authFetch ? window.authFetch('/abms/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()) : fetch('/abms/api' + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+  delete: (url) => window.authFetch ? window.authFetch('/abms/api' + url, { method: 'DELETE' }).then(r => r.json()) : fetch('/abms/api' + url, { method: 'DELETE' }).then(r => r.json())
 });
 
 function escapeHtml(str) {

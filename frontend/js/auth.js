@@ -13,7 +13,7 @@
   }
 
   const config = (async () => {
-    const res = await fetch('/admission_3/api/auth/config');
+    const res = await fetch('/abms/api/auth/config');
     const body = await res.json().catch(() => ({}));
     if (!res.ok || !body.success) {
       throw new Error(body.message || body.error || 'Authentication is not configured');
@@ -23,7 +23,7 @@
       auth: { persistSession: true, autoRefreshToken: true }
     });
   })();
-  config.catch(() => {});
+  config.catch(() => { });
 
   function readStoredToken() {
     try {
@@ -34,7 +34,7 @@
           return (session && session.access_token) || null;
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     return null;
   }
 
@@ -52,18 +52,18 @@
       if (roleRow && (roleRow.role === 'super_admin' || roleRow.role === 'staff')) {
         role = roleRow.role;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     if (!role && accessToken) {
       try {
-        const res = await fetch('/admission_3/api/me', {
+        const res = await fetch('/abms/api/me', {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         const json = await res.json();
         if (json.success && json.data?.role) {
           role = json.data.role;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     return role;
   }
@@ -91,7 +91,7 @@
       const userId = data?.user?.id || null;
 
       try {
-        await fetch('/admission_3/api/staff-applications', {
+        await fetch('/abms/api/staff-applications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -121,7 +121,7 @@
           const { data: app } = await client
             .from('staff_applications').select('status').eq('user_id', data.user.id).maybeSingle();
           appStatus = app?.status;
-        } catch (e) {}
+        } catch (e) { }
 
         await client.auth.signOut();
         window.auth.session = null;
@@ -143,7 +143,7 @@
       try {
         const client = await config;
         await client.auth.signOut();
-      } catch (e) {}
+      } catch (e) { }
       window.auth.session = null;
       window.auth.state = null;
       currentAuthState = null;
@@ -154,7 +154,7 @@
             localStorage.removeItem(key);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       window.location.replace('login.html?message=You%20have%20been%20logged%20out.');
     },
 

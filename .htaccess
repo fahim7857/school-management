@@ -1,6 +1,6 @@
 # ============================================================
 # Coaching Center – cPanel / Apache configuration
-# Place this file in public_html/admission_3/
+# Place this file in public_html/abms/
 # ============================================================
 
 # Enable Passenger Node.js application
@@ -10,10 +10,13 @@ PassengerStartupFile server.js
 
 # ─── Block web access to sensitive directories and files ───
 
-# Block backend source code
-<DirectoryMatch "^/.*(backend|data|supabase)">
-  Require all denied
-</DirectoryMatch>
+# Block backend source code, data and supabase directories.
+# (<DirectoryMatch> is not valid in .htaccess, so mod_rewrite is used.
+#  In per-directory context the path is relative to /abms/, so the
+#  pattern is anchored to top-level folders only.
+#  frontend/js/* is NOT matched.)
+RewriteEngine On
+RewriteRule ^(backend|data|supabase)(/|$) - [F,NC,L]
 
 # Block .env files
 <FilesMatch "^\.env">
@@ -25,8 +28,11 @@ PassengerStartupFile server.js
   Require all denied
 </FilesMatch>
 
-# Block .js files in backend/ (belt-and-suspenders)
-<FilesMatch "^(api|auth|database|staffAdmin)\.js$">
+# Block server-side-only .js files by name.
+# NOTE: api.js and auth.js were REMOVED from this list because they
+# also exist as public files in frontend/js/ and were causing 403.
+# Real backend copies remain protected by the directory rule above.
+<FilesMatch "^(database|staffAdmin)\.js$">
   Require all denied
 </FilesMatch>
 
@@ -38,5 +44,5 @@ PassengerStartupFile server.js
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
-# ─── Redirect bare /admission_3 to /admission_3/frontend/login.html ───
-RedirectMatch ^/admission_3/?$ /admission_3/frontend/login.html
+# ─── Redirect bare /abms to /abms/frontend/login.html ───
+RedirectMatch ^/abms/?$ /abms/frontend/login.html

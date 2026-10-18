@@ -12,18 +12,18 @@ window.debounce = debounce;
 
 // Derive the API base path from the <base> tag injected by the server when BASE_PATH is set.
 // When running locally (no BASE_PATH in .env), no <base> tag is injected → default to '/api'.
-// When deployed under a sub-path (e.g. /admission_3), the server injects <base href="/admission_3/">
-// and we build '/admission_3/api' automatically — so this works in BOTH environments.
+// When deployed under a sub-path (e.g. /abms), the server injects <base href="/abms/">
+// and we build '/abms/api' automatically — so this works in BOTH environments.
 const API_BASE = (() => {
   const baseEl = document.querySelector('base[href]');
   if (baseEl) {
-    // e.g. href="/admission_3/" → strip trailing slash → "/admission_3" + "/api"
+    // e.g. href="/abms/" → strip trailing slash → "/abms" + "/api"
     const basePath = (new URL(baseEl.href)).pathname.replace(/\/+$/, '');
     if (basePath && basePath !== '/') {
-      return basePath.endsWith('/api') ? basePath : (basePath.endsWith('/admission_3') ? basePath + '/api' : basePath + '/api');
+      return basePath.endsWith('/api') ? basePath : (basePath.endsWith('/abms') ? basePath + '/api' : basePath + '/api');
     }
   }
-  return '/admission_3/api';
+  return '/abms/api';
 })();
 
 async function authHeaders(extra = {}) {
@@ -843,7 +843,7 @@ async function fetchAndRenderDailyVoucher() {
 
   try {
     // FIX: use authFetch so the login token is sent (was raw fetch -> 401 Unauthorized)
-    const res = await authFetch(`/admission_3/api/vouchers/daily?date=${encodeURIComponent(dateVal)}&type=${encodeURIComponent(typeVal)}`);
+    const res = await authFetch(`/abms/api/vouchers/daily?date=${encodeURIComponent(dateVal)}&type=${encodeURIComponent(typeVal)}`);
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).error || msg; } catch (e) { }
@@ -1300,7 +1300,7 @@ async function populateMonthlyVoucherYears(selectId = 'monthly-voucher-year') {
 
   try {
     // FIX: use authFetch so the login token is sent (was raw fetch -> 401 Unauthorized)
-    const res = await authFetch('/admission_3/api/academic-years');
+    const res = await authFetch('/abms/api/academic-years');
     if (res.ok) {
       const ayData = await res.json();
       const ayList = Array.isArray(ayData) ? ayData : (ayData && Array.isArray(ayData.data) ? ayData.data : []);
@@ -1353,7 +1353,7 @@ async function fetchAndRenderMonthlyVoucher() {
 
   try {
     // FIX: use authFetch so the login token is sent (was raw fetch -> 401 Unauthorized)
-    const res = await authFetch(`/admission_3/api/vouchers/monthly?year=${year}&month=${month}&type=${encodeURIComponent(type)}`);
+    const res = await authFetch(`/abms/api/vouchers/monthly?year=${year}&month=${month}&type=${encodeURIComponent(type)}`);
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).error || msg; } catch (e) { }
@@ -1813,7 +1813,7 @@ async function fetchAndRenderPaymentDailyVoucher() {
   try {
     // Type is ALWAYS 'payments' here - cannot be switched to expenses
     // FIX: use authFetch so the login token is sent (was raw fetch -> 401 Unauthorized)
-    const res = await authFetch(`/admission_3/api/vouchers/daily?date=${encodeURIComponent(dateVal)}&type=payments`);
+    const res = await authFetch(`/abms/api/vouchers/daily?date=${encodeURIComponent(dateVal)}&type=payments`);
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).error || msg; } catch (e) { }
@@ -2115,7 +2115,7 @@ async function fetchAndRenderPaymentMonthlyVoucher() {
   try {
     // Type is ALWAYS 'payments' here - cannot be switched to expenses
     // FIX: use authFetch so the login token is sent (was raw fetch -> 401 Unauthorized)
-    const res = await authFetch(`/admission_3/api/vouchers/monthly?year=${year}&month=${month}&type=payments`);
+    const res = await authFetch(`/abms/api/vouchers/monthly?year=${year}&month=${month}&type=payments`);
     if (!res.ok) {
       let msg = res.statusText;
       try { msg = (await res.json()).error || msg; } catch (e) { }

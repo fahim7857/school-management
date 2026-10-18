@@ -1,6 +1,6 @@
 // Service Worker for Coaching Center Management System
 const CACHE_NAME = 'coaching-center-cache-v2';
-const BASE = '/admission_3/frontend';
+const BASE = '/abms/frontend';
 
 const STATIC_ASSETS = [
   BASE + '/',
@@ -75,7 +75,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // API calls: Network first, fall back to offline error or cached GET
-  if (url.pathname.startsWith('/admission_3/api/')) {
+  if (url.pathname.startsWith('/abms/api/')) {
     if (request.method === 'GET') {
       event.respondWith(
         fetch(request)
@@ -123,7 +123,7 @@ self.addEventListener('fetch', (event) => {
           if (networkResponse && networkResponse.ok) {
             caches.open(CACHE_NAME).then((cache) => cache.put(request, networkResponse));
           }
-        }).catch(() => {/* offline, keep cached */});
+        }).catch(() => {/* offline, keep cached */ });
         return cachedResponse;
       }
 

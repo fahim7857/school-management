@@ -410,7 +410,7 @@ async function uploadAndRestoreDatabase() {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch('/admission_3/api/database/restore', {
+    const res = await fetch('/abms/api/database/restore', {
       method: 'POST',
       headers,
       body: formData

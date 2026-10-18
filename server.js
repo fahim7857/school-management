@@ -17,7 +17,7 @@ const isHosted = Boolean(
 );
 const shouldAutoStart = isDirectRun || isHosted || !process.versions.electron;
 
-// সাব-পাথ (যেমন /admission_3)। লোকাল বা সাবডোমেইনে খালি রাখুন।
+// সাব-পাথ (যেমন /abms)। লোকাল বা সাবডোমেইনে খালি রাখুন।
 function normalizeBase(value) {
   let b = String(value || '').trim();
   if (!b || b === '/') return '';
@@ -64,7 +64,7 @@ export async function startServer() {
   }
 
   // Pre-intercept any request with /api/ anywhere in the URL to route straight to API routers
-  // This guarantees https://renbora.com/admission_3/api/staff always reaches API routers
+  // This guarantees https://renbora.com/abms/api/staff always reaches API routers
   const handleApiRequest = (req, res, next) => {
     const apiIndex = req.originalUrl ? req.originalUrl.indexOf('/api/') : -1;
     if (apiIndex !== -1 && !req.url.startsWith('/api/')) {
@@ -74,8 +74,8 @@ export async function startServer() {
   };
 
   app.use(handleApiRequest);
-  app.use('/admission_3/api', staffAdminRouter);
-  app.use('/admission_3/api', apiRouter);
+  app.use('/abms/api', staffAdminRouter);
+  app.use('/abms/api', apiRouter);
   app.use('/api', staffAdminRouter);
   app.use('/api', apiRouter);
 
@@ -88,8 +88,8 @@ export async function startServer() {
 
   // API routes FIRST inside router as well
   router.use(handleApiRequest);
-  router.use('/admission_3/api', staffAdminRouter);
-  router.use('/admission_3/api', apiRouter);
+  router.use('/abms/api', staffAdminRouter);
+  router.use('/abms/api', apiRouter);
   router.use('/api', staffAdminRouter);
   router.use('/api', apiRouter);
 
@@ -123,7 +123,7 @@ export async function startServer() {
   // Root -> login page
   router.get('/', (req, res) => sendPage(res, 'login'));
 
-  // Serve frontend files at /frontend path so /admission_3/frontend/*.html works
+  // Serve frontend files at /frontend path so /abms/frontend/*.html works
   // (critical when the app root is moved outside public_html)
   router.use('/frontend', express.static(frontendPath));
 
@@ -144,7 +144,7 @@ export async function startServer() {
   });
 
   if (BASE_PATH) {
-    // /admission_3 -> /admission_3/
+    // /abms -> /abms/
     app.get(BASE_PATH, (req, res) => res.redirect(301, BASE_PATH + '/'));
     app.use(BASE_PATH, router);
   }
