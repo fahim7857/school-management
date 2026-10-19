@@ -42,21 +42,27 @@ async function loadSystemInfo() {
 async function loadClasses() {
   try {
     const selectedAy = getSelectedAcademicYear();
-    const res = await api.get('/classes', { academic_year_id: selectedAy.id });
+    const res = await api.get('/classes', { academic_year_id: selectedAy ? selectedAy.id : undefined });
     classesList = res.data || [];
-    renderClassesTable(classesList);
+    onClassStreamFilterChange();
     populateDeleteClassDropdown(classesList);
   } catch (err) {
     showToast('Failed to load classes: ' + err.message, 'error');
   }
 }
 
+window.onClassStreamFilterChange = function() {
+  const filter = document.getElementById('settings-class-stream-filter')?.value || '';
+  const filtered = filter ? classesList.filter(c => (c.stream || 'General').toLowerCase() === filter.toLowerCase()) : classesList;
+  renderClassesTable(filtered);
+};
+
 function populateDeleteClassDropdown(classes) {
   const select = document.getElementById('select-delete-class');
   if (!select) return;
   const currentVal = select.value;
   select.innerHTML = '<option value="">-- Choose a class to delete --</option>' +
-    classes.map(c => `<option value="${c.id}">${c.name} (${c.student_count || 0} students • ৳${c.monthly_fee}/mo)</option>`).join('');
+    classes.map(c => `<option value="${c.id}">${c.name} [${c.stream || 'General'}] (${c.student_count || 0} students • ৳${c.monthly_fee}/mo)</option>`).join('');
 
   if (currentVal && classes.some(c => String(c.id) === String(currentVal))) {
     select.value = currentVal;
@@ -91,7 +97,7 @@ function onSelectClassToDeleteChange() {
   const studentsEl = document.getElementById('del-preview-students');
   const feeEl = document.getElementById('del-preview-fee');
 
-  if (nameEl) nameEl.textContent = `${cls.name} (Level ${cls.class_number})`;
+  if (nameEl) nameEl.textContent = `${cls.name} (${cls.stream || 'General'}, Level ${cls.class_number})`;
   if (studentsEl) studentsEl.textContent = `${cls.student_count || 0} Enrolled Students`;
   if (feeEl) feeEl.textContent = `${formatCurrency(cls.monthly_fee)} / month`;
 
@@ -119,7 +125,12 @@ function renderClassesTable(classes) {
 
   tbody.innerHTML = classes.map(c => `
     <tr>
-      <td style="font-weight: 700; color: #004ac6;">${c.name}</td>
+      <td style="font-weight: 700; color: #004ac6;">
+        ${c.name}
+        <span class="badge-tag" style="margin-left: 6px; font-size: 0.7rem; background: ${c.stream === 'Hifz' ? '#ecfdf5' : '#eff6ff'}; color: ${c.stream === 'Hifz' ? '#047857' : '#1d4ed8'}; border: 1px solid ${c.stream === 'Hifz' ? '#a7f3d0' : '#bfdbfe'};">
+          ${c.stream || 'General'}
+        </span>
+      </td>
       <td style="font-size: 0.8rem; color: #64748b;">Class #${c.class_number}</td>
       <td>
         <span class="badge-tag">${c.student_count || 0} Students</span>
@@ -146,18 +157,26 @@ function setupEventListeners() {
     formAddClass.addEventListener('submit', async (e) => {
       e.preventDefault();
       const form = e.target;
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       try {
-        await api.post('/classes', {
+        const selectedAy = getSelectedAcademicYear();
+        const streamVal = form.stream ? form.stream.value : 'General';
+        const res = await api.post('/classes', {
           name: form.class_name.value,
           class_number: form.class_number.value,
-          monthly_fee: form.monthly_fee.value
+          monthly_fee: form.monthly_fee.value,
+          stream: streamVal,
+          academic_year_id: selectedAy ? selectedAy.id : undefined
         });
-        showToast('New class created successfully', 'success');
+        showToast(res.message || 'New class created successfully', 'success');
         closeModal('modal-add-class-dialog');
         form.reset();
         await loadClasses();
       } catch (err) {
         showToast(err.message, 'error');
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
   }

@@ -460,7 +460,10 @@ export async function initDatabase() {
     "ALTER TABLE exam_marks ADD COLUMN remarks TEXT;",
     "ALTER TABLE student_exam_results ADD COLUMN presence INTEGER DEFAULT 0;",
     "ALTER TABLE student_exam_results ADD COLUMN absent INTEGER DEFAULT 0;",
-    "ALTER TABLE student_exam_results ADD COLUMN percentage_of_attendance REAL DEFAULT 0;"
+    "ALTER TABLE student_exam_results ADD COLUMN percentage_of_attendance REAL DEFAULT 0;",
+    "ALTER TABLE teachers ADD COLUMN is_active INTEGER DEFAULT 1;",
+    "ALTER TABLE subjects ADD COLUMN is_optional INTEGER DEFAULT 0;",
+    "ALTER TABLE students ADD COLUMN branch TEXT DEFAULT '';"
   ];
 
   for (const m of migrations) {
@@ -704,22 +707,53 @@ export function seedAcademicDefaults() {
     db.prepare("UPDATE teachers SET stream = 'General' WHERE stream IS NULL OR stream = ''").run();
   } catch (e) { }
 
-  // 2. Seed Hifz Classes if none exist
-  const hifzCount = db.prepare("SELECT COUNT(*) as count FROM classes WHERE stream = 'Hifz'").get();
-  if (!hifzCount || hifzCount.count === 0) {
-    const hifzClasses = [
-      { name: 'Hifz Class 1', class_number: 1, fee: 1000 },
-      { name: 'Hifz Class 2', class_number: 2, fee: 1200 },
-      { name: 'Hifz Class 3', class_number: 3, fee: 1500 }
-    ];
-    for (const hc of hifzClasses) {
-      try {
-        db.prepare(`
-          INSERT INTO classes (academic_year_id, name, class_number, monthly_fee, stream, is_active)
-          VALUES (?, ?, ?, ?, 'Hifz', 1)
-        `).run(ay.id, hc.name, hc.class_number, hc.fee);
-      } catch (e) { }
-    }
+  // 2. Ensure standard General and Hifz Classes exist according to institutional requirements
+  const defaultGeneralClasses = [
+    { name: 'Play', class_number: -2, fee: 800 },
+    { name: 'Nursery', class_number: -1, fee: 800 },
+    { name: 'KG', class_number: 0, fee: 800 },
+    { name: 'Class 1', class_number: 1, fee: 800 },
+    { name: 'Class 2', class_number: 2, fee: 800 },
+    { name: 'Class 3', class_number: 3, fee: 800 },
+    { name: 'Class 4', class_number: 4, fee: 900 },
+    { name: 'Class 5', class_number: 5, fee: 1000 },
+    { name: 'Class 6', class_number: 6, fee: 1100 },
+    { name: 'Class 7', class_number: 7, fee: 1200 },
+    { name: 'Class 8', class_number: 8, fee: 1300 }
+  ];
+
+  const defaultHifzClasses = [
+    { name: 'KG', class_number: 0, fee: 1000 },
+    { name: 'Class 1', class_number: 1, fee: 1000 },
+    { name: 'Class 2', class_number: 2, fee: 1200 },
+    { name: 'Class 3', class_number: 3, fee: 1500 },
+    { name: 'Class 4', class_number: 4, fee: 1500 },
+    { name: 'Class 5', class_number: 5, fee: 1500 },
+    { name: 'Class 6', class_number: 6, fee: 1500 },
+    { name: 'Class 7', class_number: 7, fee: 1500 }
+  ];
+
+  const classInsertStmt = db.prepare(`
+    INSERT INTO classes (academic_year_id, name, class_number, monthly_fee, stream, is_active)
+    VALUES (?, ?, ?, ?, ?, 1)
+  `);
+
+  for (const gc of defaultGeneralClasses) {
+    try {
+      const exists = db.prepare('SELECT id FROM classes WHERE academic_year_id = ? AND stream = ? AND class_number = ?').get(ay.id, 'General', gc.class_number);
+      if (!exists) {
+        classInsertStmt.run(ay.id, gc.name, gc.class_number, gc.fee, 'General');
+      }
+    } catch (e) { }
+  }
+
+  for (const hc of defaultHifzClasses) {
+    try {
+      const exists = db.prepare('SELECT id FROM classes WHERE academic_year_id = ? AND stream = ? AND class_number = ?').get(ay.id, 'Hifz', hc.class_number);
+      if (!exists) {
+        classInsertStmt.run(ay.id, hc.name, hc.class_number, hc.fee, 'Hifz');
+      }
+    } catch (e) { }
   }
 
   // 3. Seed Subjects for General and Hifz classes
@@ -777,7 +811,7 @@ export function seedAcademicDefaults() {
 }
 
 export function getNextRollNumber(academicYearId, classId, stream = 'General') {
-  const cls = db.prepare('SELECT class_number, stream FROM classes WHERE id = ?').get(classId);
+  const cls = db.prepare('SELECT class_number, stream, name FROM classes WHERE id = ?').get(classId);
   if (!cls) {
     throw new Error('Class not found');
   }
@@ -801,6 +835,12 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
           const seq = numPart % 100;
           if (seq > maxSeq) maxSeq = seq;
         }
+      } else {
+        const numPart = parseInt(rStr, 10);
+        if (!isNaN(numPart)) {
+          const seq = numPart % 100;
+          if (seq > maxSeq) maxSeq = seq;
+        }
       }
     } else {
       const numPart = parseInt(rStr, 10);
@@ -812,7 +852,13 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
   }
 
   const nextSeq = maxSeq + 1;
-  const baseRollNum = cls.class_number * 100 + nextSeq;
+  let baseRollNum;
+  if (cls.class_number <= 0) {
+    const prefix = cls.class_number === 0 ? 93 : (cls.class_number === -1 ? 92 : 91);
+    baseRollNum = prefix * 100 + nextSeq;
+  } else {
+    baseRollNum = cls.class_number * 100 + nextSeq;
+  }
 
   if (isHifz) {
     return `H${baseRollNum}`;

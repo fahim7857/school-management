@@ -179,10 +179,17 @@
                   <h3 class="card-title">Classes & Tuition Fees</h3>
                   <p style="font-size: 0.75rem; color: #64748b;">Class-wise monthly fee structure and cohorts</p>
                 </div>
-                <button class="btn btn-primary btn-sm" onclick="openModal('modal-add-class-dialog')">
-                  <span class="material-symbols-outlined" style="font-size: 1rem;">add</span>
-                  Add Class
-                </button>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <select id="settings-class-stream-filter" class="form-control form-control-sm" style="width: auto; font-size: 0.8rem;" onchange="onClassStreamFilterChange()">
+                    <option value="">All Systems (General &amp; Hifz)</option>
+                    <option value="General">General Classes</option>
+                    <option value="Hifz">Hifz Classes</option>
+                  </select>
+                  <button class="btn btn-primary btn-sm" onclick="openModal('modal-add-class-dialog')">
+                    <span class="material-symbols-outlined" style="font-size: 1rem;">add</span>
+                    Add Class
+                  </button>
+                </div>
               </div>
 
               <div class="data-table-container">
@@ -412,14 +419,22 @@
       <form id="form-add-class">
         <div class="modal-body">
           <div class="form-group">
+            <label class="form-label">Academic System / Stream *</label>
+            <select name="stream" class="form-control" required>
+              <option value="General" selected>General System</option>
+              <option value="Hifz">Hifz System</option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label class="form-label">Class Name *</label>
-            <input type="text" name="class_name" class="form-control" placeholder="e.g. Class 8" required>
+            <input type="text" name="class_name" class="form-control" placeholder="e.g. Class 8 or KG" required>
           </div>
 
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">Class Number / Grade *</label>
-              <input type="number" name="class_number" class="form-control" placeholder="e.g. 8" required>
+              <input type="number" name="class_number" class="form-control" placeholder="e.g. 8 (or 0 for KG, -1 Nursery, -2 Play)" required>
             </div>
             <div class="form-group">
               <label class="form-label">Monthly Tuition Fee (৳) *</label>

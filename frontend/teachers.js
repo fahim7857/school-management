@@ -437,6 +437,12 @@ document.addEventListener('DOMContentLoaded', () => {
         assigned_subject_ids: assignedSubjectIds
       };
 
+      const saveBtn = document.getElementById('saveTeacherBtn');
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving Teacher...';
+      }
+
       try {
         let res;
         if (editId) {
@@ -447,13 +453,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!res || !res.success) throw new Error(res?.error || 'Failed to save teacher');
 
-        if (window.showToast) window.showToast(res.message || 'Teacher saved successfully');
+        if (window.showToast) window.showToast(res.message || 'Teacher saved successfully', 'success');
         hideModal('teacherModal');
         await loadTeachers();
       } catch (err) {
         console.error(err);
         errBox.textContent = err.message;
         errBox.style.display = 'block';
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Teacher';
+        }
       }
     });
   }

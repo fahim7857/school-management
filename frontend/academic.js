@@ -286,6 +286,12 @@ async function handleSaveSubject(e) {
     return;
   }
 
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+  }
+
   try {
     let res;
     if (id) {
@@ -304,6 +310,11 @@ async function handleSaveSubject(e) {
   } catch (err) {
     console.error('Error saving subject:', err);
     notify(err.message || 'Failed to save subject', 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Save Subject';
+    }
   }
 }
 

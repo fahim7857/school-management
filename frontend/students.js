@@ -5,6 +5,7 @@ let allClasses = [];
 document.addEventListener('DOMContentLoaded', async () => {
   await loadClasses();
   readUrlParams();
+  syncFilterBranch();
 
   // Update dynamic month labels in the UI
   const curMonthName = getCurrentMonthName();
@@ -47,37 +48,216 @@ function readUrlParams() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Academic system / class / branch helpers
+// General: Nursery (Blue Batch / Green Batch), Play (Day / Morning), KG, Class 1-8
+// Hifz: KG, Class 1,2,3,4,5,6,7 (no branches)
+// Branches belong to ONE class (Nursery / Play); they never create a separate class.
+// ---------------------------------------------------------------------------
+const CLASS_STRUCTURE = {
+  General: ['nursery', 'play', 'kg', 'class 1', 'class 2', 'class 3', 'class 4', 'class 5', 'class 6', 'class 7', 'class 8'],
+  Hifz: ['kg', 'class 1', 'class 2', 'class 3', 'class 4', 'class 5', 'class 6', 'class 7']
+};
+
+// "Class 1", "class  1", "Nursery Blue Batch" -> "class 1", "nursery"
+function canonicalClassKey(name) {
+  const n = String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const m = n.match(/^(?:hifz\s+)?class\s*(\d+)/);
+  if (m) return `class ${parseInt(m[1], 10)}`;
+  if (/^nursery\b/.test(n)) return 'nursery';
+  if (/^play\b/.test(n)) return 'play';
+  if (/^(?:hifz\s+)?kg\b/.test(n)) return 'kg';
+  return n;
+}
+
+// Position inside the system's structure; classes not in the structure (e.g. Class 9, 10) go last
+function classRank(cls) {
+  const list = CLASS_STRUCTURE[normalizeStream(cls.stream)] || [];
+  const i = list.indexOf(canonicalClassKey(cls.name));
+  return i === -1 ? list.length : i;
+}
+
+const BRANCH_RULES = [
+  { match: /^nursery\b/i, branches: ['Blue Batch', 'Green Batch'] },
+  { match: /^play\b/i, branches: ['Day', 'Morning'] }
+];
+
+function normalizeStream(value) {
+  return String(value || '').toLowerCase() === 'hifz' ? 'Hifz' : 'General';
+}
+
+function getBranchesForClass(cls) {
+  if (!cls || normalizeStream(cls.stream) === 'Hifz') return [];
+  const name = String(cls.name || '').trim();
+  const rule = BRANCH_RULES.find(r => r.match.test(name));
+  return rule ? rule.branches : [];
+}
+
+function findClassById(id) {
+  return allClasses.find(c => String(c.id) === String(id)) || null;
+}
+
+function classesForStream(stream) {
+  const sys = normalizeStream(stream);
+  const allowedKeys = CLASS_STRUCTURE[sys] || [];
+  const seenKeys = new Set();
+
+  return allClasses
+    .filter(c => {
+      if (normalizeStream(c.stream) !== sys) return false;
+      const key = canonicalClassKey(c.name);
+      return allowedKeys.includes(key);
+    })
+    .sort((a, b) => (classRank(a) - classRank(b)) || (Number(a.class_number || 0) - Number(b.class_number || 0)) || (Number(a.id) - Number(b.id)))
+    .filter(c => {
+      const key = canonicalClassKey(c.name);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+}
+
+// Systems are shown as separate groups, never as one mixed list
+function groupedClassOptions(renderOption) {
+  let html = '';
+  ['General', 'Hifz'].forEach(sys => {
+    const list = classesForStream(sys);
+    if (list.length) html += `<optgroup label="${sys}">${list.map(renderOption).join('')}</optgroup>`;
+  });
+  return html;
+}
+
+function fillBranchSelect(selectEl, groupEl, cls, currentValue, placeholder) {
+  if (!selectEl) return;
+  const branches = getBranchesForClass(cls);
+  if (!branches.length) {
+    selectEl.innerHTML = `<option value="">${placeholder}</option>`;
+    selectEl.value = '';
+    if (groupEl) groupEl.hidden = true;
+    return;
+  }
+  selectEl.innerHTML = `<option value="">${placeholder}</option>` +
+    branches.map(b => `<option value="${b}">${b}</option>`).join('');
+  if (currentValue && branches.includes(currentValue)) {
+    selectEl.value = currentValue;
+  } else {
+    selectEl.value = '';
+  }
+  if (groupEl) groupEl.hidden = false;
+}
+
+function renderFilterClassOptions() {
+  const sel = document.getElementById('filter-class-select');
+  if (!sel) return;
+  const streamEl = document.getElementById('filter-stream-select');
+  const stream = streamEl ? streamEl.value : '';
+  const previous = sel.value;
+  const renderOption = c => `<option value="${c.id}">${c.name} (৳${c.monthly_fee})</option>`;
+  const options = stream ? classesForStream(stream).map(renderOption).join('') : groupedClassOptions(renderOption);
+  sel.innerHTML = `<option value="">All Classes</option>${options}`;
+  if (previous && Array.from(sel.options).some(o => o.value === previous)) {
+    sel.value = previous;
+  } else {
+    sel.value = '';
+  }
+}
+
+function renderModalClassOptions() {
+  const sel = document.getElementById('modal-student-class-select');
+  if (!sel) return;
+  const streamEl = document.getElementById('modal-student-stream-select');
+  const stream = streamEl ? streamEl.value : 'General';
+  const previous = sel.value;
+  const list = classesForStream(stream);
+
+  sel.innerHTML = list.length
+    ? list.map(c => `<option value="${c.id}">${c.name} (৳${c.monthly_fee}/mo)</option>`).join('')
+    : '<option value="">No classes in this system</option>';
+
+  if (previous && list.some(c => String(c.id) === String(previous))) {
+    sel.value = previous;
+  } else if (list.length > 0) {
+    sel.value = list[0].id;
+  }
+}
+
+function renderEditClassOptions(targetClassId) {
+  const sel = document.getElementById('edit-student-class-select');
+  if (!sel) return;
+  const streamEl = document.getElementById('edit-student-stream-select');
+  const stream = streamEl ? streamEl.value : 'General';
+  const previous = targetClassId !== undefined ? targetClassId : sel.value;
+  const list = classesForStream(stream);
+
+  sel.innerHTML = list.length
+    ? list.map(c => `<option value="${c.id}">${c.name} (৳${c.monthly_fee}/mo)</option>`).join('')
+    : '<option value="">No classes in this system</option>';
+
+  if (previous && list.some(c => String(c.id) === String(previous))) {
+    sel.value = previous;
+  } else if (list.length > 0) {
+    sel.value = list[0].id;
+  }
+
+  const hiddenName = document.getElementById('edit-student-class-name');
+  const selectedCls = findClassById(sel.value);
+  if (hiddenName) hiddenName.value = selectedCls ? selectedCls.name : '';
+}
+
+function renderPayFilterClassOptions() {
+  const sel = document.getElementById('stu-pay-filter-class');
+  if (!sel) return;
+  const streamEl = document.getElementById('stu-pay-filter-stream');
+  const stream = streamEl ? streamEl.value : '';
+  const previous = sel.value;
+  const renderOption = c => `<option value="${c.id}">${c.name}</option>`;
+  const options = stream ? classesForStream(stream).map(renderOption).join('') : groupedClassOptions(renderOption);
+  sel.innerHTML = `<option value="">All Classes</option>${options}`;
+  if (previous && Array.from(sel.options).some(o => o.value === previous)) {
+    sel.value = previous;
+  } else {
+    sel.value = '';
+  }
+}
+
+function syncFilterBranch() {
+  const classSel = document.getElementById('filter-class-select');
+  const branchSel = document.getElementById('filter-branch-select');
+  const group = document.getElementById('filter-branch-group');
+  if (!classSel || !branchSel) return;
+  fillBranchSelect(branchSel, group, findClassById(classSel.value), branchSel.value, 'All Branches');
+}
+
+function syncModalBranch() {
+  const classSel = document.getElementById('modal-student-class-select');
+  const branchSel = document.getElementById('modal-student-branch-select');
+  const group = document.getElementById('modal-student-branch-group');
+  if (!classSel || !branchSel) return;
+  fillBranchSelect(branchSel, group, findClassById(classSel.value), branchSel.value, 'Select branch');
+}
+
+function syncEditBranch() {
+  const classSel = document.getElementById('edit-student-class-select');
+  const branchSel = document.getElementById('edit-student-branch-select');
+  const group = document.getElementById('edit-student-branch-group');
+  if (!classSel || !branchSel) return;
+  fillBranchSelect(branchSel, group, findClassById(classSel.value), branchSel.value, 'Select branch');
+}
+
+function classLabelWithBranch(st) {
+  return st.branch ? `${st.class_name} — ${st.branch}` : st.class_name;
+}
+
 async function loadClasses() {
   try {
     const res = await api.get('/classes');
     allClasses = res.data;
 
-    // Filter class select
-    const filterCls = document.getElementById('filter-class-select');
-    if (filterCls) {
-      filterCls.innerHTML = `
-        <option value="">All Classes</option>
-        ${allClasses.map(c => `<option value="${c.id}">${c.name} (৳${c.monthly_fee})</option>`).join('')}
-      `;
-    }
-
-    // Modal class select
-    const modalCls = document.getElementById('modal-student-class-select');
-    if (modalCls) {
-      modalCls.innerHTML = allClasses.map(c => `
-        <option value="${c.id}">${c.name} (৳${c.monthly_fee}/mo)</option>
-      `).join('');
-      updateNextRollPreview();
-    }
-
-    // Payment modal class filter
-    const stuPayClass = document.getElementById('stu-pay-filter-class');
-    if (stuPayClass) {
-      stuPayClass.innerHTML = `
-        <option value="">All Classes</option>
-        ${allClasses.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-      `;
-    }
+    renderFilterClassOptions();
+    renderModalClassOptions();
+    syncModalBranch();
+    if (document.getElementById('modal-student-class-select')) updateNextRollPreview();
+    renderPayFilterClassOptions();
   } catch (err) {
     console.error('Failed to load classes', err);
   }
@@ -101,6 +281,10 @@ async function loadStudents() {
     const res = await api.get('/students', params);
 
     allStudents = res.data;
+    const branchFilter = document.getElementById('filter-branch-select');
+    if (branchFilter && branchFilter.value) {
+      allStudents = allStudents.filter(s => (s.branch || '') === branchFilter.value);
+    }
     renderStats(allStudents);
     renderStudentsTable(allStudents);
   } catch (err) {
@@ -175,7 +359,7 @@ function renderStudentsTable(students) {
           ${st.phone_secondary ? `<div style="font-size: 0.72rem; color: #64748b;">${st.phone_secondary} ${st.primary_contact === 'secondary' ? '<span style="font-size:0.65rem; color:#0284c7;">(P)</span>' : ''}</div>` : ''}
         </td>
         <td>
-          <span class="badge-tag">${st.class_name}</span>
+          <span class="badge-tag">${classLabelWithBranch(st)}</span>
           ${streamBadge}
         </td>
         <td style="font-weight: 600;">${formatCurrency(st.monthly_fee)}</td>
@@ -212,18 +396,58 @@ function renderStudentsTable(students) {
 
 function setupEventListeners() {
   document.getElementById('filter-search-input').addEventListener('input', debounce(loadStudents, 300));
-  document.getElementById('filter-class-select').addEventListener('change', loadStudents);
+  document.getElementById('filter-class-select').addEventListener('change', () => {
+    const branchSel = document.getElementById('filter-branch-select');
+    if (branchSel) branchSel.value = '';
+    syncFilterBranch();
+    loadStudents();
+  });
   const streamFilter = document.getElementById('filter-stream-select');
-  if (streamFilter) streamFilter.addEventListener('change', loadStudents);
+  if (streamFilter) {
+    streamFilter.addEventListener('change', () => {
+      renderFilterClassOptions();
+      const branchSel = document.getElementById('filter-branch-select');
+      if (branchSel) branchSel.value = '';
+      syncFilterBranch();
+      loadStudents();
+    });
+  }
+  const branchFilterEl = document.getElementById('filter-branch-select');
+  if (branchFilterEl) branchFilterEl.addEventListener('change', loadStudents);
   document.getElementById('filter-payment-select').addEventListener('change', loadStudents);
 
   const modalClass = document.getElementById('modal-student-class-select');
   if (modalClass) {
-    modalClass.addEventListener('change', updateNextRollPreview);
+    modalClass.addEventListener('change', () => {
+      syncModalBranch();
+      updateNextRollPreview();
+    });
   }
   const modalStream = document.getElementById('modal-student-stream-select');
   if (modalStream) {
-    modalStream.addEventListener('change', updateNextRollPreview);
+    modalStream.addEventListener('change', () => {
+      renderModalClassOptions();
+      syncModalBranch();
+      updateNextRollPreview();
+    });
+  }
+
+  const editStream = document.getElementById('edit-student-stream-select');
+  if (editStream) {
+    editStream.addEventListener('change', () => {
+      renderEditClassOptions();
+      syncEditBranch();
+    });
+  }
+
+  const editClass = document.getElementById('edit-student-class-select');
+  if (editClass) {
+    editClass.addEventListener('change', () => {
+      syncEditBranch();
+      const hiddenName = document.getElementById('edit-student-class-name');
+      const selectedCls = findClassById(editClass.value);
+      if (hiddenName) hiddenName.value = selectedCls ? selectedCls.name : '';
+    });
   }
 
   const formAdd = document.getElementById('form-add-student-modal');
@@ -231,6 +455,12 @@ function setupEventListeners() {
     formAdd.addEventListener('submit', async (e) => {
       e.preventDefault();
       const form = e.target;
+      const selectedClass = findClassById(form.class_id.value);
+      const needsBranch = getBranchesForClass(selectedClass).length > 0;
+      if (needsBranch && !form.branch.value) {
+        showToast('Please select a branch for this class', 'error');
+        return;
+      }
       try {
         const res = await api.post('/students', {
           name: form.name.value,
@@ -243,11 +473,15 @@ function setupEventListeners() {
           address: form.address.value,
           class_id: form.class_id.value,
           stream: form.stream ? form.stream.value : 'General',
+          branch: needsBranch ? form.branch.value : '',
           admission_date: form.admission_date.value || today
         });
         showToast(`Student admitted successfully with Roll #${res.data.roll_number}!`, 'success');
         closeModal('modal-add-student-dialog');
         form.reset();
+        renderModalClassOptions();
+        syncModalBranch();
+        updateNextRollPreview();
         await loadStudents();
       } catch (err) {
         showToast(err.message, 'error');
@@ -261,6 +495,12 @@ function setupEventListeners() {
       e.preventDefault();
       const form = e.target;
       const id = form.student_id.value;
+      const selectedClass = findClassById(form.class_id ? form.class_id.value : '');
+      const needsBranch = getBranchesForClass(selectedClass).length > 0;
+      if (needsBranch && !form.branch.value) {
+        showToast('Please select a branch for this class', 'error');
+        return;
+      }
       try {
         await api.put(`/students/${id}`, {
           name: form.name.value,
@@ -271,7 +511,9 @@ function setupEventListeners() {
           primary_contact: form.primary_contact ? form.primary_contact.value : 'primary',
           notes: form.notes ? form.notes.value : '',
           address: form.address.value,
+          class_id: form.class_id ? form.class_id.value : undefined,
           stream: form.stream ? form.stream.value : 'General',
+          branch: needsBranch ? form.branch.value : '',
           admission_date: form.admission_date.value
         });
         showToast('Student profile updated successfully', 'success');
@@ -333,9 +575,18 @@ async function openEditStudentModal(id) {
     const st = res.data.student;
     const form = document.getElementById('form-edit-student-modal');
     form.student_id.value = st.id;
-    form.roll_number.value = `#${st.roll_number}`;
-    form.class_name.value = st.class_name;
-    if (form.stream) form.stream.value = st.stream || 'General';
+    const stStream = normalizeStream(st.stream);
+    if (form.stream) form.stream.value = stStream;
+
+    renderEditClassOptions(st.class_id);
+
+    const editClass = findClassById(st.class_id) ||
+      allClasses.find(c => c.name === st.class_name && normalizeStream(c.stream) === stStream) || null;
+    fillBranchSelect(
+      document.getElementById('edit-student-branch-select'),
+      document.getElementById('edit-student-branch-group'),
+      editClass, st.branch || '', 'Select branch'
+    );
     if (form.primary_contact) form.primary_contact.value = st.primary_contact || 'primary';
     form.name.value = st.name || '';
     form.father_name.value = (st.father_name && st.father_name !== 'N/A' && st.father_name !== 'null') ? st.father_name : '';
@@ -401,7 +652,7 @@ function exportStudentsToExcel() {
       `"${(s.father_name || '').replace(/"/g, '""')}"`,
       `"${(s.mother_name || '').replace(/"/g, '""')}"`,
       `"${s.phone}"`,
-      `"${s.class_name}"`,
+      `"${classLabelWithBranch(s)}"`,
       s.monthly_fee,
       formatDate(s.admission_date),
       s.current_month_status,
@@ -446,6 +697,7 @@ let selectedStuPaymentStudent = null;
 function setupStudentsPaymentModal() {
   const input = document.getElementById('stu-pay-student-input');
   const btnFind = document.getElementById('btn-find-student-stu');
+  const filterStream = document.getElementById('stu-pay-filter-stream');
   const filterClass = document.getElementById('stu-pay-filter-class');
   const monthSelect = document.getElementById('stu-pay-month-select');
   const btnReset = document.getElementById('btn-reset-verified-stu');
@@ -463,6 +715,13 @@ function setupStudentsPaymentModal() {
 
   if (btnFind) {
     btnFind.addEventListener('click', () => lookupStuStudents(true));
+  }
+
+  if (filterStream) {
+    filterStream.addEventListener('change', () => {
+      renderPayFilterClassOptions();
+      lookupStuStudents(false);
+    });
   }
 
   if (filterClass) {
@@ -490,22 +749,26 @@ function setupStudentsPaymentModal() {
 
 async function lookupStuStudents(autoSelectIfSingle = false) {
   const input = document.getElementById('stu-pay-student-input');
+  const filterStream = document.getElementById('stu-pay-filter-stream');
   const filterClass = document.getElementById('stu-pay-filter-class');
   const suggestionsBox = document.getElementById('stu-pay-student-suggestions');
   const monthSelect = document.getElementById('stu-pay-month-select');
 
   if (!input) return;
   const query = input.value.trim();
+  const stream = filterStream ? filterStream.value : '';
   const classId = filterClass ? filterClass.value : '';
   const month = monthSelect ? monthSelect.value : getCurrentMonthName();
 
-  if (!query && !classId) {
+  if (!query && !classId && !stream) {
     if (suggestionsBox) suggestionsBox.style.display = 'none';
     return;
   }
 
   try {
-    const res = await api.get('/students/lookup', { query, class_id: classId, month });
+    const params = { query, class_id: classId, month };
+    if (stream) params.stream = stream;
+    const res = await api.get('/students/lookup', params);
     const students = res.students || [];
 
     if (autoSelectIfSingle && res.exactMatch) {
@@ -541,7 +804,7 @@ async function lookupStuStudents(autoSelectIfSingle = false) {
           <div>
             <div style="font-weight: 600; font-size: 0.85rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
               <span>${s.name}</span>
-              <span class="badge-tag" style="font-size: 0.7rem; padding: 1px 6px;">${s.class_name}</span>
+              <span class="badge-tag" style="font-size: 0.7rem; padding: 1px 6px;">${classLabelWithBranch(s)}</span>
               <span class="badge-tag" style="font-size: 0.7rem; padding: 1px 6px; background: #e0f2fe; color: #0369a1;">Roll #${s.roll_number}</span>
             </div>
             <div style="font-size: 0.73rem; color: #64748b; margin-top: 1px;">
@@ -597,7 +860,7 @@ function selectStuStudentForPayment(student) {
 
   if (avatar) avatar.textContent = student.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   if (name) name.textContent = student.name;
-  if (cls) cls.textContent = student.class_name;
+  if (cls) cls.textContent = classLabelWithBranch(student);
   if (roll) roll.textContent = `Roll #${student.roll_number}`;
   if (phone) phone.textContent = student.phone || 'N/A';
   if (father) father.textContent = student.father_name || 'Guardian';

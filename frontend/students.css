@@ -55,19 +55,40 @@
 }
 
 .students-page-table th:nth-child(1),
-.students-page-table td:nth-child(1) { width: 7%; }
+.students-page-table td:nth-child(1) {
+  width: 7%;
+}
+
 .students-page-table th:nth-child(2),
-.students-page-table td:nth-child(2) { width: 22%; }
+.students-page-table td:nth-child(2) {
+  width: 22%;
+}
+
 .students-page-table th:nth-child(3),
-.students-page-table td:nth-child(3) { width: 12%; }
+.students-page-table td:nth-child(3) {
+  width: 12%;
+}
+
 .students-page-table th:nth-child(4),
-.students-page-table td:nth-child(4) { width: 10%; }
+.students-page-table td:nth-child(4) {
+  width: 10%;
+}
+
 .students-page-table th:nth-child(5),
-.students-page-table td:nth-child(5) { width: 11%; }
+.students-page-table td:nth-child(5) {
+  width: 11%;
+}
+
 .students-page-table th:nth-child(6),
-.students-page-table td:nth-child(6) { width: 12%; }
+.students-page-table td:nth-child(6) {
+  width: 12%;
+}
+
 .students-page-table th:nth-child(7),
-.students-page-table td:nth-child(7) { width: 9%; }
+.students-page-table td:nth-child(7) {
+  width: 9%;
+}
+
 .students-page-table th:nth-child(8),
 .students-page-table td:nth-child(8) {
   width: 17%;
@@ -82,4 +103,14 @@
 
 .stu-student-item:hover {
   background: #f8fafc;
+}
+
+/* Branch selectors (Nursery / Play) */
+[hidden] {
+  display: none !important;
+}
+
+#modal-student-branch-group,
+#edit-student-branch-group {
+  margin-bottom: 1rem;
 }

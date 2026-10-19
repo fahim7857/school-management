@@ -192,9 +192,9 @@
           <div class="filter-group">
             <select id="filter-stream-select" class="form-control"
               style="width: auto; min-width: 130px; font-size: 0.82rem; padding: 0.45rem 0.75rem;">
-              <option value="">All Streams</option>
-              <option value="General">General Stream</option>
-              <option value="Hifz">Hifz Stream</option>
+              <option value="">All Systems</option>
+              <option value="General">General</option>
+              <option value="Hifz">Hifz</option>
             </select>
           </div>
 
@@ -202,6 +202,13 @@
             <select id="filter-class-select" class="form-control"
               style="width: auto; min-width: 140px; font-size: 0.82rem; padding: 0.45rem 0.75rem;">
               <option value="">All Classes</option>
+            </select>
+          </div>
+
+          <div class="filter-group" id="filter-branch-group" hidden>
+            <select id="filter-branch-select" class="form-control"
+              style="width: auto; min-width: 130px; font-size: 0.82rem; padding: 0.45rem 0.75rem;">
+              <option value="">All Branches</option>
             </select>
           </div>
 
@@ -260,10 +267,10 @@
 
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Academic Stream *</label>
+              <label class="form-label">Academic System *</label>
               <select name="stream" id="modal-student-stream-select" class="form-control" required>
-                <option value="General" selected>General Stream</option>
-                <option value="Hifz">Hifz Stream</option>
+                <option value="General" selected>General</option>
+                <option value="Hifz">Hifz</option>
               </select>
             </div>
             <div class="form-group">
@@ -272,6 +279,13 @@
                 <!-- Populated dynamically -->
               </select>
             </div>
+          </div>
+
+          <div class="form-group" id="modal-student-branch-group" hidden>
+            <label class="form-label">Branch *</label>
+            <select name="branch" id="modal-student-branch-select" class="form-control">
+              <option value="">Select branch</option>
+            </select>
           </div>
 
           <div class="form-group">
@@ -322,7 +336,8 @@
 
           <div class="form-group">
             <label class="form-label">Notes & Remarks</label>
-            <textarea name="notes" class="form-control" rows="2" placeholder="Student background, medical notes, special considerations..."></textarea>
+            <textarea name="notes" class="form-control" rows="2"
+              placeholder="Student background, medical notes, special considerations..."></textarea>
           </div>
         </div>
         <div class="modal-footer">
@@ -350,17 +365,20 @@
               <input type="text" name="roll_number" class="form-control" readonly>
             </div>
             <div class="form-group">
-              <label class="form-label">Class</label>
-              <input type="text" name="class_name" class="form-control" readonly>
+              <label class="form-label">Class *</label>
+              <select name="class_id" id="edit-student-class-select" class="form-control" required>
+                <!-- Populated dynamically based on Academic System -->
+              </select>
+              <input type="hidden" name="class_name" id="edit-student-class-name">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">Academic Stream *</label>
+              <label class="form-label">Academic System *</label>
               <select name="stream" id="edit-student-stream-select" class="form-control">
-                <option value="General">General Stream</option>
-                <option value="Hifz">Hifz Stream</option>
+                <option value="General">General</option>
+                <option value="Hifz">Hifz</option>
               </select>
             </div>
             <div class="form-group">
@@ -370,6 +388,13 @@
                 <option value="secondary">Secondary Phone</option>
               </select>
             </div>
+          </div>
+
+          <div class="form-group" id="edit-student-branch-group" hidden>
+            <label class="form-label">Branch *</label>
+            <select name="branch" id="edit-student-branch-select" class="form-control">
+              <option value="">Select branch</option>
+            </select>
           </div>
 
           <div class="form-group">
@@ -513,7 +538,15 @@
 
             <div class="form-row" style="margin-bottom: 0.5rem;">
               <div class="form-group" style="flex: 1;">
-                <label class="form-label" style="font-size: 0.78rem;">Filter by Class (Optional)</label>
+                <label class="form-label" style="font-size: 0.78rem;">Academic System</label>
+                <select id="stu-pay-filter-stream" class="form-control" style="font-size: 0.82rem;">
+                  <option value="">All Systems</option>
+                  <option value="General">General</option>
+                  <option value="Hifz">Hifz</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label class="form-label" style="font-size: 0.78rem;">Filter by Class</label>
                 <select id="stu-pay-filter-class" class="form-control" style="font-size: 0.82rem;">
                   <option value="">All Classes</option>
                 </select>

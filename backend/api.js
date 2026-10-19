@@ -490,6 +490,7 @@ apiRouter.get('/classes', (req, res) => {
 
     let sql = `
       SELECT c.*, 
+        COALESCE(c.stream, 'General') as stream,
         (SELECT COUNT(*) FROM students s WHERE s.class_id = c.id) as student_count
       FROM classes c
       WHERE c.academic_year_id = ?
@@ -497,7 +498,7 @@ apiRouter.get('/classes', (req, res) => {
     const params = [academicYearId];
 
     if (stream) {
-      sql += ' AND LOWER(c.stream) = LOWER(?)';
+      sql += " AND LOWER(COALESCE(c.stream, 'General')) = LOWER(?)";
       params.push(stream);
     }
 
@@ -518,16 +519,40 @@ apiRouter.post('/classes', (req, res) => {
     const fee = parseFloat(monthly_fee);
     const classStream = (stream && stream.toLowerCase() === 'hifz') ? 'Hifz' : 'General';
 
-    if (!name || isNaN(cNum) || isNaN(fee) || fee <= 0) {
-      return res.status(400).json({ success: false, error: 'Valid name, class number, and positive monthly fee required' });
+    if (!name || !name.trim() || isNaN(cNum) || isNaN(fee) || fee <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid class name, class number, and positive monthly fee are required.' });
+    }
+
+    const trimmedName = name.trim();
+
+    // Check duplicate by class_number within the same stream and academic year
+    const existingNum = db.prepare('SELECT id, name FROM classes WHERE academic_year_id = ? AND stream = ? AND class_number = ?').get(ayId, classStream, cNum);
+    if (existingNum) {
+      return res.status(400).json({
+        success: false,
+        error: `Class number ${cNum} already exists in ${classStream} stream ("${existingNum.name}"). Each class within a stream must have a unique class number.`
+      });
+    }
+
+    // Check duplicate by name within the same stream and academic year
+    const existingName = db.prepare('SELECT id FROM classes WHERE academic_year_id = ? AND stream = ? AND LOWER(name) = LOWER(?)').get(ayId, classStream, trimmedName);
+    if (existingName) {
+      return res.status(400).json({
+        success: false,
+        error: `A class named "${trimmedName}" already exists in ${classStream} stream.`
+      });
     }
 
     const insert = db.prepare(`
       INSERT INTO classes (academic_year_id, name, class_number, monthly_fee, stream, is_active)
       VALUES (?, ?, ?, ?, ?, 1)
     `);
-    const resRow = insert.run(ayId, name.trim(), cNum, fee, classStream);
-    res.json({ success: true, data: { id: Number(resRow.lastInsertRowid), stream: classStream } });
+    const resRow = insert.run(ayId, trimmedName, cNum, fee, classStream);
+    res.json({
+      success: true,
+      data: { id: Number(resRow.lastInsertRowid), name: trimmedName, class_number: cNum, stream: classStream, monthly_fee: fee },
+      message: `Class "${trimmedName}" (${classStream} Stream) created successfully.`
+    });
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
@@ -627,7 +652,88 @@ apiRouter.delete('/classes/:id', requireDeletePermission, (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+// ============================================================================
+// STUDENT BRANCH SUPPORT (Nursery: Blue Batch / Green Batch, Play: Day / Morning)
+// Paste this block in your backend API file, ABOVE the first `apiRouter.<method>('/students...')`
+// route (it must be registered before the /students routes). `/classes` needs NO change.
+// It uses the existing `apiRouter` and `db`.
+// ============================================================================
 
+// 1) One-time, safe migration: add students.branch if missing
+(function ensureStudentBranchColumn() {
+  try {
+    const cols = db.prepare('PRAGMA table_info(students)').all();
+    if (!cols.some(c => c.name === 'branch')) {
+      db.prepare("ALTER TABLE students ADD COLUMN branch TEXT DEFAULT ''").run();
+      console.log('[migration] students.branch column added');
+    }
+  } catch (err) {
+    console.error('[migration] could not add students.branch:', err.message);
+  }
+})();
+
+// 2) Branch rules (same rules as the frontend). Branches exist only for General Nursery / Play.
+function allowedBranchesFor(className, classStream) {
+  if (String(classStream || '').toLowerCase() === 'hifz') return [];
+  const name = String(className || '').trim();
+  if (/^nursery\b/i.test(name)) return ['Blue Batch', 'Green Batch'];
+  if (/^play\b/i.test(name)) return ['Day', 'Morning'];
+  return [];
+}
+
+function saveStudentBranch(studentId, branch) {
+  const row = db.prepare(
+    'SELECT s.id AS id, s.stream AS student_stream, c.name AS class_name, c.stream AS class_stream FROM students s LEFT JOIN classes c ON c.id = s.class_id WHERE s.id = ?'
+  ).get(studentId);
+  if (!row) return '';
+  const stream = row.class_stream || row.student_stream || 'General';
+  const allowed = allowedBranchesFor(row.class_name, stream);
+  const value = (branch && allowed.includes(branch)) ? branch : '';
+  db.prepare('UPDATE students SET branch = ? WHERE id = ?').run(value, studentId);
+  return value;
+}
+
+function attachBranches(rows) {
+  const list = (Array.isArray(rows) ? rows : [rows]).filter(r => r && r.id !== undefined);
+  for (let i = 0; i < list.length; i += 500) {
+    const chunk = list.slice(i, i + 500);
+    const ph = chunk.map(() => '?').join(',');
+    const found = db.prepare(`SELECT id, branch FROM students WHERE id IN (${ph})`).all(...chunk.map(r => r.id));
+    const map = new Map(found.map(f => [Number(f.id), f.branch || '']));
+    chunk.forEach(r => { r.branch = map.get(Number(r.id)) || ''; });
+  }
+}
+
+// 3) Hook: saves `branch` on create/update and adds `branch` to every student returned by /students*
+apiRouter.use('/students', (req, res, next) => {
+  const isCreate = req.method === 'POST' && (req.path === '/' || req.path === '');
+  const idMatch = req.path.match(/^\/(\d+)$/);
+  const isUpdate = req.method === 'PUT' && !!idMatch;
+  const isGet = req.method === 'GET';
+  const branch = (req.body && typeof req.body.branch === 'string') ? req.body.branch.trim() : null;
+
+  const originalJson = res.json.bind(res);
+  res.json = function (payload) {
+    try {
+      if (payload && payload.success !== false) {
+        if (isCreate && branch !== null && payload.data && payload.data.id) {
+          saveStudentBranch(payload.data.id, branch);
+        } else if (isUpdate && branch !== null) {
+          saveStudentBranch(parseInt(idMatch[1], 10), branch);
+        } else if (isGet) {
+          if (Array.isArray(payload.data)) attachBranches(payload.data);
+          else if (payload.data && payload.data.student) attachBranches(payload.data.student);
+          if (Array.isArray(payload.students)) attachBranches(payload.students);
+          if (payload.exactMatch) attachBranches(payload.exactMatch);
+        }
+      }
+    } catch (err) {
+      console.error('[branch hook]', err.message);
+    }
+    return originalJson(payload);
+  };
+  next();
+});
 // ----------------------------------------------------
 // STUDENTS & AUTOMATIC ROLL
 // ----------------------------------------------------
@@ -642,14 +748,26 @@ apiRouter.get('/students/next-roll', (req, res) => {
     }
 
     const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
-    const effectiveStream = stream || cls?.stream || 'General';
+    if (!cls) {
+      return res.status(400).json({ success: false, error: 'Class not found' });
+    }
+
+    const classStream = (cls.stream && cls.stream.toLowerCase() === 'hifz') ? 'Hifz' : 'General';
+    if (stream && stream.toLowerCase() !== classStream.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        error: `Selected class "${cls.name}" belongs to the ${classStream} system, not ${stream}`
+      });
+    }
+
+    const effectiveStream = classStream;
     const nextRoll = getNextRollNumber(ayId, classId, effectiveStream);
 
     res.json({
       success: true,
       nextRoll,
-      classFee: cls?.monthly_fee ?? 1000,
-      className: cls?.name ?? '',
+      classFee: cls.monthly_fee ?? 1000,
+      className: cls.name ?? '',
       stream: effectiveStream
     });
   } catch (error) {
@@ -2830,11 +2948,11 @@ function calculateSubjectScore(stream, examType, marks) {
 function getGradeAndGpa(score) {
   const s = Math.round(score * 2) / 2;
   if (s >= 90) return { grade: 'A+', gpa: 5.00, remarks: 'Excellent' };
-  if (s >= 80) return { grade: 'A',  gpa: 4.50, remarks: 'Very Good' };
+  if (s >= 80) return { grade: 'A', gpa: 4.50, remarks: 'Very Good' };
   if (s >= 70) return { grade: 'B+', gpa: 4.00, remarks: 'Good' };
-  if (s >= 60) return { grade: 'B',  gpa: 3.00, remarks: 'Satisfactory' };
-  if (s >= 50) return { grade: 'C',  gpa: 2.00, remarks: 'Poor' };
-  if (s >= 40) return { grade: 'D',  gpa: 1.00, remarks: 'Very Poor' };
+  if (s >= 60) return { grade: 'B', gpa: 3.00, remarks: 'Satisfactory' };
+  if (s >= 50) return { grade: 'C', gpa: 2.00, remarks: 'Poor' };
+  if (s >= 40) return { grade: 'D', gpa: 1.00, remarks: 'Very Poor' };
   return { grade: 'F', gpa: 0.00, remarks: 'Fail' };
 }
 
@@ -3091,18 +3209,21 @@ apiRouter.post('/teachers', (req, res) => {
 
     // Insert teacher
     const stmt = db.prepare(`
-      INSERT INTO teachers (name, email, phone, phone_secondary, primary_contact, fixed_salary, stream, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO teachers (name, email, phone, phone_secondary, primary_contact, fixed_salary, stream, status, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', 1)
     `);
     const result = stmt.run(name.trim(), tEmail, tPhone, tPhoneSec, tPrimaryContact, tFixedSalary, tStream);
     const newTeacherId = Number(result.lastInsertRowid);
 
-    // Insert assignments
+    // Insert assignments with required NOT NULL columns (class_id, stream, academic_year_id)
     for (const sId of subjectIds) {
-      db.prepare(`
-        INSERT INTO teacher_assignments (teacher_id, subject_id, is_active)
-        VALUES (?, ?, 1)
-      `).run(newTeacherId, sId);
+      const subj = db.prepare('SELECT class_id, stream, academic_year_id FROM subjects WHERE id = ?').get(sId);
+      if (subj) {
+        db.prepare(`
+          INSERT INTO teacher_assignments (teacher_id, subject_id, class_id, stream, academic_year_id, is_active)
+          VALUES (?, ?, ?, ?, ?, 1)
+        `).run(newTeacherId, sId, subj.class_id, subj.stream || tStream, subj.academic_year_id || getActiveAcademicYearId());
+      }
     }
 
     const newTeacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(newTeacherId);
@@ -3144,7 +3265,8 @@ apiRouter.put('/teachers/:id', (req, res) => {
     const tPrimaryContact = primary_contact !== undefined ? (primary_contact === 'secondary' ? 'secondary' : 'primary') : teacher.primary_contact;
     const tFixedSalary = fixed_salary !== undefined ? (parseFloat(fixed_salary) || 0) : teacher.fixed_salary;
     const tStream = stream !== undefined ? (stream === 'Hifz' ? 'Hifz' : 'General') : (teacher.stream || 'General');
-    const tIsActive = is_active !== undefined ? (is_active ? 1 : 0) : teacher.is_active;
+    const tIsActive = is_active !== undefined ? (is_active ? 1 : 0) : (teacher.is_active ?? 1);
+    const tStatus = tIsActive ? 'Active' : 'Inactive';
 
     // Validate subject assignments if passed
     if (assigned_subject_ids !== undefined) {
@@ -3170,17 +3292,23 @@ apiRouter.put('/teachers/:id', (req, res) => {
       // Deactivate old assignments for this teacher
       db.prepare('DELETE FROM teacher_assignments WHERE teacher_id = ?').run(id);
 
-      // Insert updated assignments
+      // Insert updated assignments with required NOT NULL fields
       for (const sId of subjectIds) {
-        db.prepare('INSERT INTO teacher_assignments (teacher_id, subject_id, is_active) VALUES (?, ?, 1)').run(id, sId);
+        const subj = db.prepare('SELECT class_id, stream, academic_year_id FROM subjects WHERE id = ?').get(sId);
+        if (subj) {
+          db.prepare(`
+            INSERT INTO teacher_assignments (teacher_id, subject_id, class_id, stream, academic_year_id, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
+          `).run(id, sId, subj.class_id, subj.stream || tStream, subj.academic_year_id || getActiveAcademicYearId());
+        }
       }
     }
 
     db.prepare(`
       UPDATE teachers
-      SET name = ?, email = ?, phone = ?, phone_secondary = ?, primary_contact = ?, fixed_salary = ?, stream = ?, is_active = ?
+      SET name = ?, email = ?, phone = ?, phone_secondary = ?, primary_contact = ?, fixed_salary = ?, stream = ?, status = ?, is_active = ?
       WHERE id = ?
-    `).run(tName, tEmail, tPhone, tPhoneSec, tPrimaryContact, tFixedSalary, tStream, tIsActive, id);
+    `).run(tName, tEmail, tPhone, tPhoneSec, tPrimaryContact, tFixedSalary, tStream, tStatus, tIsActive, id);
 
     const updated = db.prepare('SELECT * FROM teachers WHERE id = ?').get(id);
     res.json({ success: true, message: `Teacher "${updated.name}" updated successfully`, data: updated });
@@ -3199,7 +3327,7 @@ apiRouter.delete('/teachers/:id', requireDeletePermission, (req, res) => {
     }
 
     // Soft deactivate teacher and release active assignments
-    db.prepare('UPDATE teachers SET is_active = 0 WHERE id = ?').run(id);
+    db.prepare("UPDATE teachers SET is_active = 0, status = 'Inactive' WHERE id = ?").run(id);
     db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?').run(id);
 
     res.json({ success: true, message: `Teacher "${teacher.name}" deactivated successfully. Historical records preserved.` });
@@ -3427,7 +3555,7 @@ apiRouter.get('/academic/classes', (req, res) => {
     let query = `
       SELECT c.*, 
              (SELECT COUNT(*) FROM subjects s WHERE s.class_id = c.id AND s.is_active = 1) as subject_count,
-             (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND st.status = 'active') as student_count
+             (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND LOWER(st.status) = 'active') as student_count
       FROM classes c
       WHERE 1=1
     `;
@@ -3487,29 +3615,41 @@ apiRouter.post('/academic/subjects', (req, res) => {
   try {
     const { name, code, class_id, stream, full_marks, is_optional } = req.body;
     if (!name || !name.trim()) {
-      return res.status(400).json({ success: false, error: 'Subject name is required' });
+      return res.status(400).json({ success: false, error: 'Subject name is required.' });
     }
     if (!class_id) {
-      return res.status(400).json({ success: false, error: 'Class is required' });
+      return res.status(400).json({ success: false, error: 'Class is required.' });
     }
 
     const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(class_id);
     if (!cls) {
-      return res.status(404).json({ success: false, error: 'Class not found' });
+      return res.status(404).json({ success: false, error: 'Selected class not found.' });
+    }
+
+    const trimmedName = name.trim();
+    const existing = db.prepare('SELECT id FROM subjects WHERE class_id = ? AND LOWER(name) = LOWER(?)').get(class_id, trimmedName);
+    if (existing) {
+      return res.status(400).json({ success: false, error: `Subject "${trimmedName}" already exists in class "${cls.name}".` });
     }
 
     const subjStream = stream || cls.stream || 'General';
     const fMarks = parseInt(full_marks, 10) || 100;
     const isOpt = is_optional ? 1 : 0;
+    const ayId = cls.academic_year_id || getActiveAcademicYearId();
 
     const stmt = db.prepare(`
-      INSERT INTO subjects (class_id, name, code, stream, full_marks, is_optional, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO subjects (academic_year_id, class_id, name, code, stream, full_marks, is_optional, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
     `);
-    const result = stmt.run(class_id, name.trim(), (code || '').trim(), subjStream, fMarks, isOpt);
+    const result = stmt.run(ayId, class_id, trimmedName, (code || '').trim(), subjStream, fMarks, isOpt);
 
-    const newSubj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(result.lastInsertRowid);
-    res.json({ success: true, message: `Subject "${newSubj.name}" added successfully`, data: newSubj });
+    const newSubj = db.prepare(`
+      SELECT s.*, c.name as class_name, c.stream as class_stream
+      FROM subjects s
+      JOIN classes c ON s.class_id = c.id
+      WHERE s.id = ?
+    `).get(result.lastInsertRowid);
+    res.json({ success: true, message: `Subject "${newSubj.name}" added successfully.`, data: newSubj });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -3670,7 +3810,7 @@ apiRouter.get('/examinations', (req, res) => {
     const ayId = req.query.academic_year_id ? parseInt(req.query.academic_year_id, 10) : getActiveAcademicYearId();
 
     let query = `
-      SELECT e.*, ay.year_name, c.name as class_name, c.class_number
+      SELECT e.*, ay.name as academic_year_name, ay.name as year_name, c.name as class_name, c.class_number
       FROM examinations e
       LEFT JOIN academic_years ay ON e.academic_year_id = ay.id
       LEFT JOIN classes c ON e.class_id = c.id
@@ -3737,7 +3877,7 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
   try {
     const examId = parseInt(req.params.id, 10);
     const exam = db.prepare(`
-      SELECT e.*, ay.year_name, c.name as class_name, c.class_number
+      SELECT e.*, ay.name as academic_year_name, ay.name as year_name, c.name as class_name, c.class_number
       FROM examinations e
       LEFT JOIN academic_years ay ON e.academic_year_id = ay.id
       LEFT JOIN classes c ON e.class_id = c.id
@@ -3760,7 +3900,7 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     const subjects = db.prepare(subjQuery).all(...subParams);
 
     // Students in this class/stream
-    let stuQuery = "SELECT st.*, c.name as class_name FROM students st JOIN classes c ON st.class_id = c.id WHERE st.status = 'active' AND st.stream = ?";
+    let stuQuery = "SELECT st.*, c.name as class_name FROM students st JOIN classes c ON st.class_id = c.id WHERE LOWER(st.status) = 'active' AND st.stream = ?";
     const stuParams = [exam.stream];
     if (selectedClassId) {
       stuQuery += ' AND st.class_id = ?';
@@ -3854,13 +3994,17 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         );
         insertedOrUpdated.push(existing.id);
       } else {
+        const insClassId = subj.class_id || exam.class_id;
+        const insStream = exam.stream || subj.stream || 'General';
         const ins = db.prepare(`
-          INSERT INTO exam_marks (examination_id, student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO exam_marks (examination_id, student_id, subject_id, class_id, stream, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           examId,
           sId,
           subId,
+          insClassId,
+          insStream,
           mt1 !== undefined ? mt1 : null,
           mt2 !== undefined ? mt2 : null,
           mt3 !== undefined ? mt3 : null,
@@ -3910,7 +4054,7 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
     const grandTotalMarks = subjectCount * 100;
 
     // Get students in this class and stream
-    const students = db.prepare("SELECT * FROM students WHERE class_id = ? AND stream = ? AND status = 'active' ORDER BY roll_number ASC").all(cId, exam.stream);
+    const students = db.prepare("SELECT * FROM students WHERE class_id = ? AND stream = ? AND LOWER(status) = 'active' ORDER BY roll_number ASC").all(cId, exam.stream);
 
     // Compute highest mark in class for each subject
     const highestMarksMap = {};
@@ -4050,10 +4194,15 @@ apiRouter.post('/examinations/:id/student-meta', (req, res) => {
         WHERE id = ?
       `).run(wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '', existing.id);
     } else {
+      const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
+      const exam = db.prepare('SELECT class_id, stream FROM examinations WHERE id = ?').get(examId);
+      const cId = student ? student.class_id : (exam ? exam.class_id : 1);
+      const str = student ? student.stream : (exam ? exam.stream : 'General');
+
       db.prepare(`
-        INSERT INTO student_exam_results (examination_id, student_id, total_working_days, presence, absent, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(examId, sId, wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '');
+        INSERT INTO student_exam_results (examination_id, student_id, class_id, stream, total_working_days, presence, absent, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(examId, sId, cId, str, wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '');
     }
 
     res.json({ success: true, message: 'Student examination metadata saved successfully' });
