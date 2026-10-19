@@ -1,48 +1,22 @@
-# ============================================================
-# Coaching Center – cPanel / Apache configuration
-# Place this file in public_html/abms/
-# ============================================================
-
-# Enable Passenger Node.js application
+# Enable Node.js application through Passenger
 PassengerEnabled on
 PassengerAppType node
 PassengerStartupFile server.js
-
-# ─── Block web access to sensitive directories and files ───
-
-# Block backend source code, data and supabase directories.
-# (<DirectoryMatch> is not valid in .htaccess, so mod_rewrite is used.
-#  In per-directory context the path is relative to /abms/, so the
-#  pattern is anchored to top-level folders only.
-#  frontend/js/* is NOT matched.)
+# Enable rewrite rules
 RewriteEngine On
-RewriteRule ^(backend|data|supabase)(/|$) - [F,NC,L]
-
-# Block .env files
-<FilesMatch "^\.env">
-  Require all denied
-</FilesMatch>
-
-# Block SQLite database files
-<FilesMatch "\.db$">
-  Require all denied
-</FilesMatch>
-
-# Block server-side-only .js files by name.
-# NOTE: api.js and auth.js were REMOVED from this list because they
-# also exist as public files in frontend/js/ and were causing 403.
-# Real backend copies remain protected by the directory rule above.
-<FilesMatch "^(database|staffAdmin)\.js$">
-  Require all denied
-</FilesMatch>
-
-# ─── Security headers ───
-<IfModule mod_headers.c>
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set X-Frame-Options "DENY"
-  Header always set X-XSS-Protection "1; mode=block"
-  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+# Redirect /abms/ to the login page
+RewriteRule ^$ frontend/login.html [L]
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/renborac/public_html/abms"
+PassengerBaseURI "/abms"
+PassengerNodejs "/home/renborac/nodevenv/public_html/abms/22/bin/node"
+PassengerAppType node
+PassengerStartupFile server.js
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
+<IfModule Litespeed>
+SetEnv SUPABASE_URL https://qdtbdxrilzbogzzucgfe.supabase.co
+SetEnv SUPABASE_ANON_KEY eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdGJkeHJpbHpib2d6enVjZ2ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MjExMzIsImV4cCI6MjEwNjE5NzEzMn0.oLrdPQVy6UCnENRgWK_NssP8RuAwtQ-itLcoQn6_xCA
+SetEnv SUPABASE_SERVICE_ROLE_KEY eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkdGJkeHJpbHpib2d6enVjZ2ZlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MDYyMTEzMiwiZXhwIjoyMTA2MTk3MTMyfQ.CsMOwtTEgrVxLeD9pq1UmRIv5KuHTB0ErNO4WYYi2gU
 </IfModule>
-
-# ─── Redirect bare /abms to /abms/frontend/login.html ───
-RedirectMatch ^/abms/?$ /abms/frontend/login.html
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
