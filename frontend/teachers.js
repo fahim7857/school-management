@@ -455,6 +455,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (window.showToast) window.showToast(res.message || 'Teacher saved successfully', 'success');
         hideModal('teacherModal');
+        // New teacher: clear teacher-specific filters so the new record isn't hidden
+        if (!editId) {
+          if (teacherStreamFilter) teacherStreamFilter.value = '';
+          if (teacherSearchInput) teacherSearchInput.value = '';
+        }
         await loadTeachers();
       } catch (err) {
         console.error(err);

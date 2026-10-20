@@ -129,7 +129,8 @@
               <h2>Teacher Management & Fixed Salary</h2>
               <span class="badge-tag" id="teacherCountBadge">0 Teachers</span>
             </div>
-            <p style="color: #64748b; font-size: 0.80rem; margin-top: 0.2rem;">Fixed monthly salaries, stream & subject assignments, advance deductions, and salary payments.</p>
+            <p style="color: #64748b; font-size: 0.80rem; margin-top: 0.2rem;">Fixed monthly salaries, stream & subject
+              assignments, advance deductions, and salary payments.</p>
           </div>
 
           <div class="teachers-header-actions" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -217,10 +218,12 @@
               style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--outline-variant); display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-wrap: wrap; gap: 0.5rem;">
               <div>
                 <h3 style="font-size: 0.90rem; font-weight: 700; color: #1e293b;">Faculty Members & Assignments</h3>
-                <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.15rem;">Configured fixed salaries, contact numbers, and assigned subjects.</p>
+                <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.15rem;">Configured fixed salaries, contact
+                  numbers, and assigned subjects.</p>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <select id="teacherStreamFilter" style="padding: 0.35rem 0.65rem; font-size: 0.80rem; border: 1px solid var(--outline); border-radius: 6px;">
+                <select id="teacherStreamFilter"
+                  style="padding: 0.35rem 0.65rem; font-size: 0.80rem; border: 1px solid var(--outline); border-radius: 6px;">
                   <option value="">All Streams</option>
                   <option value="General">General</option>
                   <option value="Hifz">Hifz</option>
@@ -244,7 +247,8 @@
                 </thead>
                 <tbody id="teachersTableBody">
                   <tr>
-                    <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">Loading faculty records...</td>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">Loading faculty
+                      records...</td>
                   </tr>
                 </tbody>
               </table>
@@ -259,10 +263,12 @@
               style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--outline-variant); display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-wrap: wrap; gap: 0.75rem;">
               <div>
                 <h3 style="font-size: 0.90rem; font-weight: 700; color: #1e293b;">Salary & Advance Payment Log</h3>
-                <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.15rem;">Auditable history of disbursements and automatic advance recoveries.</p>
+                <p style="font-size: 0.75rem; color: #64748b; margin-top: 0.15rem;">Auditable history of disbursements
+                  and automatic advance recoveries.</p>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <input type="month" id="paymentLogMonthInput" style="padding: 0.35rem 0.65rem; font-size: 0.80rem; border: 1px solid var(--outline); border-radius: 6px;">
+                <input type="month" id="paymentLogMonthInput"
+                  style="padding: 0.35rem 0.65rem; font-size: 0.80rem; border: 1px solid var(--outline); border-radius: 6px;">
               </div>
             </div>
 
@@ -303,12 +309,16 @@
       <form id="teacherForm" novalidate>
         <input type="hidden" id="teacherEditId">
         <div class="modal-body" style="gap: 1rem; max-height: 75vh; overflow-y: auto;">
-          <div id="teacherFormError" class="form-error-alert" style="display: none; padding: 0.6rem; background: #fef2f2; color: #b91c1c; border-radius: 6px; font-size: 0.82rem;"></div>
+          <div id="teacherFormError" class="form-error-alert"
+            style="display: none; padding: 0.6rem; background: #fef2f2; color: #b91c1c; border-radius: 6px; font-size: 0.82rem;">
+          </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div class="form-group">
-              <label class="form-label" for="teacherNameInput">Teacher Full Name <span style="color: var(--danger);">*</span></label>
-              <input type="text" id="teacherNameInput" class="form-control" required placeholder="e.g. Mohammad Rafiqul Islam">
+              <label class="form-label" for="teacherNameInput">Teacher Full Name <span
+                  style="color: var(--danger);">*</span></label>
+              <input type="text" id="teacherNameInput" class="form-control" required
+                placeholder="e.g. Mohammad Rafiqul Islam">
             </div>
 
             <div class="form-group">
@@ -319,7 +329,8 @@
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div class="form-group">
-              <label class="form-label" for="teacherPhoneInput">Primary Mobile Number <span style="color: var(--danger);">*</span></label>
+              <label class="form-label" for="teacherPhoneInput">Primary Mobile Number <span
+                  style="color: var(--danger);">*</span></label>
               <input type="tel" id="teacherPhoneInput" class="form-control" placeholder="e.g. 01712345678" required>
             </div>
 
@@ -330,7 +341,8 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">Default Contact for Calls / SMS <span style="color: var(--danger);">*</span></label>
+            <label class="form-label">Default Contact for Calls / SMS <span
+                style="color: var(--danger);">*</span></label>
             <div style="display: flex; gap: 1.5rem; margin-top: 0.25rem;">
               <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
                 <input type="radio" name="primaryContactRadio" value="primary" checked>
@@ -345,12 +357,15 @@
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div class="form-group">
-              <label class="form-label" for="fixedSalaryInput">Fixed Monthly Salary (৳) <span style="color: var(--danger);">*</span></label>
-              <input type="number" id="fixedSalaryInput" class="form-control" placeholder="e.g. 15000" min="0" step="100" required>
+              <label class="form-label" for="fixedSalaryInput">Fixed Monthly Salary (৳) <span
+                  style="color: var(--danger);">*</span></label>
+              <input type="number" id="fixedSalaryInput" class="form-control" placeholder="e.g. 15000" min="0"
+                step="100" required>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="teacherStreamSelect">Academic Stream <span style="color: var(--danger);">*</span></label>
+              <label class="form-label" for="teacherStreamSelect">Academic Stream <span
+                  style="color: var(--danger);">*</span></label>
               <select id="teacherStreamSelect" class="form-control" required>
                 <option value="General">General Stream</option>
                 <option value="Hifz">Hifz Stream</option>
@@ -368,7 +383,8 @@
               Select the subjects taught by this teacher. Subjects already assigned to another teacher appear disabled.
             </p>
 
-            <div id="subjectAssignmentContainer" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px; padding: 0.75rem; background: #f8fafc;">
+            <div id="subjectAssignmentContainer"
+              style="max-height: 200px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px; padding: 0.75rem; background: #f8fafc;">
               <p style="font-size: 0.8rem; color: #94a3b8; text-align: center;">Loading available subjects...</p>
             </div>
           </div>
@@ -387,22 +403,28 @@
     <div class="modal-dialog" style="max-width: 480px;">
       <div class="modal-header">
         <h3 class="modal-title">Disburse Teacher Salary Advance</h3>
-        <button type="button" class="modal-close" id="closeTeacherAdvanceModalBtn" aria-label="Close modal">&times;</button>
+        <button type="button" class="modal-close" id="closeTeacherAdvanceModalBtn"
+          aria-label="Close modal">&times;</button>
       </div>
       <form id="teacherAdvanceForm">
         <div class="modal-body" style="gap: 1rem;">
-          <div id="teacherAdvanceFormError" style="display: none; padding: 0.5rem 0.75rem; background: #ffeeec; color: #b91c1c; border-radius: 6px; font-size: 0.8rem;"></div>
+          <div id="teacherAdvanceFormError"
+            style="display: none; padding: 0.5rem 0.75rem; background: #ffeeec; color: #b91c1c; border-radius: 6px; font-size: 0.8rem;">
+          </div>
 
           <div class="form-group">
-            <label class="form-label" for="advanceTeacherSelect">Select Teacher <span style="color: var(--danger);">*</span></label>
+            <label class="form-label" for="advanceTeacherSelect">Select Teacher <span
+                style="color: var(--danger);">*</span></label>
             <select id="advanceTeacherSelect" class="form-control" required>
               <option value="">Select teacher...</option>
             </select>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="advanceAmountInput">Advance Amount (৳) <span style="color: var(--danger);">*</span></label>
-            <input type="number" id="advanceAmountInput" class="form-control" placeholder="e.g. 4000" min="1" step="any" required>
+            <label class="form-label" for="advanceAmountInput">Advance Amount (৳) <span
+                style="color: var(--danger);">*</span></label>
+            <input type="number" id="advanceAmountInput" class="form-control" placeholder="e.g. 4000" min="1" step="any"
+              required>
             <small style="color: #64748b; font-size: 0.75rem; margin-top: 0.2rem; display: block;">
               Will be recorded as cash outflow (expense) now, and automatically deducted from upcoming monthly salary.
             </small>
@@ -410,7 +432,8 @@
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div class="form-group">
-              <label class="form-label" for="advanceDateInput">Disbursement Date <span style="color: var(--danger);">*</span></label>
+              <label class="form-label" for="advanceDateInput">Disbursement Date <span
+                  style="color: var(--danger);">*</span></label>
               <input type="date" id="advanceDateInput" class="form-control" required>
             </div>
 
@@ -447,10 +470,13 @@
       </div>
       <form id="payFixedSalaryForm">
         <div class="modal-body" style="gap: 1rem;">
-          <div id="paySalaryFormError" style="display: none; padding: 0.5rem 0.75rem; background: #ffeeec; color: #b91c1c; border-radius: 6px; font-size: 0.8rem;"></div>
+          <div id="paySalaryFormError"
+            style="display: none; padding: 0.5rem 0.75rem; background: #ffeeec; color: #b91c1c; border-radius: 6px; font-size: 0.8rem;">
+          </div>
 
           <div class="form-group">
-            <label class="form-label" for="salaryTeacherSelect">Select Teacher <span style="color: var(--danger);">*</span></label>
+            <label class="form-label" for="salaryTeacherSelect">Select Teacher <span
+                style="color: var(--danger);">*</span></label>
             <select id="salaryTeacherSelect" class="form-control" required>
               <option value="">Select teacher...</option>
             </select>
@@ -458,18 +484,21 @@
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div class="form-group">
-              <label class="form-label" for="salaryMonthInput">Salary Month <span style="color: var(--danger);">*</span></label>
+              <label class="form-label" for="salaryMonthInput">Salary Month <span
+                  style="color: var(--danger);">*</span></label>
               <input type="month" id="salaryMonthInput" class="form-control" required>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="salaryPayDateInput">Payment Date <span style="color: var(--danger);">*</span></label>
+              <label class="form-label" for="salaryPayDateInput">Payment Date <span
+                  style="color: var(--danger);">*</span></label>
               <input type="date" id="salaryPayDateInput" class="form-control" required>
             </div>
           </div>
 
           <!-- Live Automatic Adjustment Preview -->
-          <div style="background: #f8fafc; border: 1px dashed var(--outline-variant); padding: 0.85rem; border-radius: 8px;">
+          <div
+            style="background: #f8fafc; border: 1px dashed var(--outline-variant); padding: 0.85rem; border-radius: 8px;">
             <div style="font-weight: 700; font-size: 0.82rem; color: #1e293b; margin-bottom: 0.4rem;">
               Automatic Advance Adjustment Calculation:
             </div>
@@ -486,7 +515,8 @@
                 <span>Advance Deducted This Month:</span>
                 <strong id="previewAdvanceDeducted">৳0</strong>
               </div>
-              <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 800; color: #16a34a; border-top: 1px solid #cbd5e1; padding-top: 0.35rem; margin-top: 0.2rem;">
+              <div
+                style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 800; color: #16a34a; border-top: 1px solid #cbd5e1; padding-top: 0.35rem; margin-top: 0.2rem;">
                 <span>Net Cash Payable Now:</span>
                 <strong id="previewNetPayable">৳0</strong>
               </div>
@@ -515,7 +545,8 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="cancelPaySalaryBtn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="confirmPaySalaryBtn" style="background: #16a34a;">Confirm & Disburse Salary</button>
+          <button type="submit" class="btn btn-primary" id="confirmPaySalaryBtn" style="background: #16a34a;">Confirm &
+            Disburse Salary</button>
         </div>
       </form>
     </div>
@@ -531,23 +562,28 @@
       <div class="modal-body" style="gap: 1rem; max-height: 75vh; overflow-y: auto;">
         <!-- Overview Grid -->
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
-          <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--outline-variant);">
+          <div
+            style="background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--outline-variant);">
             <div style="font-size: 0.70rem; color: #64748b; font-weight: 700;">MONTHLY FIXED SALARY</div>
-            <div style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-top: 0.25rem;" id="detailFixedSalary">৳0</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-top: 0.25rem;"
+              id="detailFixedSalary">৳0</div>
           </div>
           <div style="background: #fdf2f2; padding: 0.75rem; border-radius: 8px; border: 1px solid #fecaca;">
             <div style="font-size: 0.70rem; color: #dc2626; font-weight: 700;">OUTSTANDING ADVANCE</div>
-            <div style="font-size: 1.1rem; font-weight: 700; color: #dc2626; margin-top: 0.25rem;" id="detailOutstandingAdvance">৳0</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #dc2626; margin-top: 0.25rem;"
+              id="detailOutstandingAdvance">৳0</div>
           </div>
           <div style="background: #f0fdf4; padding: 0.75rem; border-radius: 8px; border: 1px solid #bbf7d0;">
             <div style="font-size: 0.70rem; color: #16a34a; font-weight: 700;">TOTAL NET PAID</div>
-            <div style="font-size: 1.1rem; font-weight: 700; color: #16a34a; margin-top: 0.25rem;" id="detailTotalNetPaid">৳0</div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #16a34a; margin-top: 0.25rem;"
+              id="detailTotalNetPaid">৳0</div>
           </div>
         </div>
 
         <!-- Assignments Info -->
         <div style="background: #f1f5f9; padding: 0.65rem 0.85rem; border-radius: 6px;">
-          <div style="font-size: 0.75rem; font-weight: 700; color: #334155; margin-bottom: 0.35rem;">Class & Subject Assignments:</div>
+          <div style="font-size: 0.75rem; font-weight: 700; color: #334155; margin-bottom: 0.35rem;">Class & Subject
+            Assignments:</div>
           <div id="detailAssignmentsList" style="display: flex; flex-wrap: wrap; gap: 0.4rem; font-size: 0.78rem;">
             <span>None</span>
           </div>
@@ -558,7 +594,8 @@
           <h4 style="font-size: 0.80rem; font-weight: 700; color: #1e293b; margin-bottom: 0.35rem;">
             Monthly Fixed Salary Payments
           </h4>
-          <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px;">
+          <div
+            style="max-height: 140px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px;">
             <table class="data-table" style="font-size: 0.76rem;">
               <thead>
                 <tr>
@@ -571,7 +608,10 @@
                 </tr>
               </thead>
               <tbody id="detailSalaryPaymentsBody">
-                <tr><td colspan="6" style="text-align: center; padding: 0.75rem; color: #64748b;">No salary payments yet</td></tr>
+                <tr>
+                  <td colspan="6" style="text-align: center; padding: 0.75rem; color: #64748b;">No salary payments yet
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -582,7 +622,8 @@
           <h4 style="font-size: 0.80rem; font-weight: 700; color: #1e293b; margin-bottom: 0.35rem;">
             Salary Advances History
           </h4>
-          <div style="max-height: 140px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px;">
+          <div
+            style="max-height: 140px; overflow-y: auto; border: 1px solid var(--outline-variant); border-radius: 6px;">
             <table class="data-table" style="font-size: 0.76rem;">
               <thead>
                 <tr>
@@ -593,7 +634,9 @@
                 </tr>
               </thead>
               <tbody id="detailAdvancesBody">
-                <tr><td colspan="4" style="text-align: center; padding: 0.75rem; color: #64748b;">No advances taken</td></tr>
+                <tr>
+                  <td colspan="4" style="text-align: center; padding: 0.75rem; color: #64748b;">No advances taken</td>
+                </tr>
               </tbody>
             </table>
           </div>

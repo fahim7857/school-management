@@ -344,6 +344,7 @@ export async function initDatabase() {
       payment_date TEXT NOT NULL,
       fixed_salary REAL NOT NULL,
       advance_adjustment REAL DEFAULT 0,
+      advance_deducted REAL DEFAULT 0,
       net_paid REAL NOT NULL,
       voucher_no TEXT,
       note TEXT,
@@ -463,7 +464,8 @@ export async function initDatabase() {
     "ALTER TABLE student_exam_results ADD COLUMN percentage_of_attendance REAL DEFAULT 0;",
     "ALTER TABLE teachers ADD COLUMN is_active INTEGER DEFAULT 1;",
     "ALTER TABLE subjects ADD COLUMN is_optional INTEGER DEFAULT 0;",
-    "ALTER TABLE students ADD COLUMN branch TEXT DEFAULT '';"
+    "ALTER TABLE students ADD COLUMN branch TEXT DEFAULT '';",
+    "ALTER TABLE teacher_salary_payments ADD COLUMN advance_deducted REAL DEFAULT 0;"
   ];
 
   for (const m of migrations) {
