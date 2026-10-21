@@ -558,7 +558,7 @@ function openPrintReceiptModal(paymentData) {
     <div style="border: 2px dashed #cbd5e1; padding: 1.5rem; border-radius: 8px; background: #fff;">
       <div style="text-align: center; border-bottom: 2px solid #004ac6; padding-bottom: 0.75rem; margin-bottom: 1rem;">
         <h2 style="color: #004ac6; font-size: 1.25rem; font-weight: 700; margin: 0;">COACHING CENTER MANAGEMENT</h2>
-        <p style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Admission 3 and Academic Care</p>
+        <p style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">ALEYA BEGUM MODERN SCHOOL</p>
         <span style="display: inline-block; background: #2563eb; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 10px; border-radius: 9999px; margin-top: 6px;">
           MONEY RECEIPT (OFFICIAL)
         </span>
@@ -668,7 +668,7 @@ function openPrintExpenseReceiptModal(expenseData) {
     <div style="border: 2px dashed #cbd5e1; padding: 1.5rem; border-radius: 8px; background: #fff;">
       <div style="text-align: center; border-bottom: 2px solid #dc2626; padding-bottom: 0.75rem; margin-bottom: 1rem;">
         <h2 style="color: #004ac6; font-size: 1.25rem; font-weight: 700; margin: 0;">COACHING CENTER MANAGEMENT</h2>
-        <p style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Admission 3 and Academic Care</p>
+        <p style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">ALEYA BEGUM MODERN SCHOOL</p>
         <span style="display: inline-block; background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 10px; border-radius: 9999px; margin-top: 6px;">
           DEBIT VOUCHER / EXPENSE RECEIPT (OFFICIAL)
         </span>

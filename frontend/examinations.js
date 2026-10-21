@@ -131,6 +131,9 @@ function setupEventListeners() {
       window.location.href = `result-cards.html?exam_id=${examId}&class_id=${classId}`;
     }
   });
+
+  // Attendance entry listeners
+  setupAttendanceListeners();
 }
 
 async function loadInitialData() {
@@ -180,6 +183,7 @@ async function loadExams() {
     examinationsList = res.data || [];
     renderExamsTable(examinationsList);
     populateExamSelect(examinationsList);
+    populateAttExamSelect(examinationsList);
   } catch (err) {
     console.error('Error loading exams:', err);
     tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #dc2626; padding: 2rem;">Error: ${escapeHtml(err.message)}</td></tr>`;
@@ -715,3 +719,288 @@ window.selectExamForMarks = selectExamForMarks;
 window.goToResultCards = goToResultCards;
 window.closeModal = closeModal;
 window.showModal = showModal;
+
+// ====================================================
+// ATTENDANCE ENTRY LOGIC
+// ====================================================
+
+let attCurrentExam = null;
+
+function setupAttendanceListeners() {
+  document.getElementById('attExamSelect')?.addEventListener('change', handleAttExamChange);
+  document.getElementById('attClassSelect')?.addEventListener('change', loadAttendanceSheet);
+  document.getElementById('attWorkingDays')?.addEventListener('input', recalculateAllAttendance);
+  document.getElementById('saveAttendanceBtn')?.addEventListener('click', handleSaveAttendance);
+}
+
+function populateAttExamSelect(exams) {
+  const sel = document.getElementById('attExamSelect');
+  if (!sel) return;
+  let html = '<option value="">Select examination...</option>';
+  exams.forEach(e => {
+    html += `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.stream)} • ${e.exam_type})</option>`;
+  });
+  sel.innerHTML = html;
+}
+
+async function handleAttExamChange() {
+  const examId = document.getElementById('attExamSelect')?.value;
+  const classSel = document.getElementById('attClassSelect');
+  if (!classSel) return;
+
+  if (!examId) {
+    classSel.innerHTML = '<option value="">Select class...</option>';
+    attCurrentExam = null;
+    clearAttendanceSheet();
+    return;
+  }
+
+  const exam = examinationsList.find(e => e.id === parseInt(examId, 10));
+  if (!exam) return;
+  attCurrentExam = exam;
+
+  let filteredClasses = activeClasses.filter(c => c.stream === exam.stream);
+  if (exam.class_id) {
+    const scoped = filteredClasses.filter(c => c.id === exam.class_id);
+    if (scoped.length > 0) filteredClasses = scoped;
+  }
+
+  let html = '<option value="">Select class...</option>';
+  filteredClasses.forEach(c => {
+    html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
+  });
+  classSel.innerHTML = html;
+
+  if (filteredClasses.length > 0) {
+    classSel.value = String(filteredClasses[0].id);
+    await loadAttendanceSheet();
+  } else {
+    clearAttendanceSheet();
+  }
+}
+
+function clearAttendanceSheet() {
+  const tbody = document.getElementById('attendanceSheetTbody');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 3rem; color: #64748b;">Please select an Examination and Class above to load students for attendance entry.</td></tr>`;
+  }
+  const saveBtn = document.getElementById('saveAttendanceBtn');
+  if (saveBtn) saveBtn.style.display = 'none';
+  const wdInput = document.getElementById('attWorkingDays');
+  if (wdInput) wdInput.value = '';
+}
+
+async function loadAttendanceSheet() {
+  const examId = document.getElementById('attExamSelect')?.value;
+  const classId = document.getElementById('attClassSelect')?.value;
+  const tbody = document.getElementById('attendanceSheetTbody');
+  const saveBtn = document.getElementById('saveAttendanceBtn');
+
+  if (!examId || !classId) {
+    clearAttendanceSheet();
+    return;
+  }
+
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #64748b;">Loading students...</td></tr>`;
+
+  try {
+    const res = await apiClient.get(`/examinations/${examId}/attendance`, { class_id: classId });
+    if (!res || !res.success) throw new Error(res?.error || 'Failed to load attendance');
+
+    const data = res.data;
+    const wdInput = document.getElementById('attWorkingDays');
+
+    // Pre-fill working days from existing data
+    if (data.total_working_days !== '' && data.total_working_days !== null && data.total_working_days !== undefined) {
+      wdInput.value = data.total_working_days;
+    }
+
+    const students = data.students || [];
+    if (students.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">No active students found in this class.</td></tr>`;
+      if (saveBtn) saveBtn.style.display = 'none';
+      return;
+    }
+
+    const wDays = parseInt(wdInput.value, 10) || 0;
+
+    tbody.innerHTML = students.map(st => {
+      const presVal = (st.presence !== null && st.presence !== undefined) ? st.presence : '';
+      const pres = presVal !== '' ? parseInt(presVal, 10) : 0;
+      const abs = wDays > 0 && presVal !== '' ? Math.max(0, wDays - pres) : '-';
+      const pct = wDays > 0 && presVal !== '' ? (Math.round((pres / wDays) * 1000) / 10) : '-';
+      const teacherRemarks = st.class_teacher_remarks || '';
+      const principalRemarks = st.principal_remarks || '';
+
+      return `
+        <tr data-student-id="${st.student_id}" class="att-row">
+          <td style="font-weight: 700; color: #004ac6;">#${st.roll_number}</td>
+          <td style="font-weight: 600; color: #0f172a;">${escapeHtml(st.name)}</td>
+          <td>
+            <input type="number" class="form-control att-presence-input" min="0" max="365" step="1"
+                   value="${presVal}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem;">
+          </td>
+          <td class="cell-absent" style="font-weight: 600; color: #dc2626;">${abs}</td>
+          <td class="cell-att-pct" style="font-weight: 700; color: #004ac6;">${pct !== '-' ? pct + '%' : '-'}</td>
+          <td>
+            <input type="text" class="form-control att-teacher-remarks" placeholder="Optional teacher remarks..."
+                   value="${escapeHtml(teacherRemarks)}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; width: 100%;">
+          </td>
+          <td>
+            <input type="text" class="form-control att-principal-remarks" placeholder="Optional principal remarks..."
+                   value="${escapeHtml(principalRemarks)}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; width: 100%;">
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    if (saveBtn) saveBtn.style.display = 'inline-flex';
+
+    // Attach live recalculation on presence input change
+    attachAttendanceCalcListeners();
+  } catch (err) {
+    console.error('Error loading attendance sheet:', err);
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #dc2626; padding: 2rem;">Error: ${escapeHtml(err.message)}</td></tr>`;
+    if (saveBtn) saveBtn.style.display = 'none';
+  }
+}
+
+function attachAttendanceCalcListeners() {
+  const rows = document.querySelectorAll('.att-row');
+  rows.forEach(row => {
+    const presInput = row.querySelector('.att-presence-input');
+    if (presInput) {
+      presInput.addEventListener('input', () => recalcAttRow(row));
+    }
+  });
+}
+
+function recalcAttRow(row) {
+  const wDays = parseInt(document.getElementById('attWorkingDays')?.value, 10) || 0;
+  const presInput = row.querySelector('.att-presence-input');
+  const absCell = row.querySelector('.cell-absent');
+  const pctCell = row.querySelector('.cell-att-pct');
+
+  const pres = parseInt(presInput.value, 10);
+
+  if (isNaN(pres) || presInput.value === '') {
+    absCell.textContent = '-';
+    pctCell.textContent = '-';
+    return;
+  }
+
+  if (wDays > 0) {
+    const abs = Math.max(0, wDays - pres);
+    absCell.textContent = abs;
+    const pct = Math.round((pres / wDays) * 1000) / 10;
+    pctCell.textContent = pct + '%';
+  } else {
+    absCell.textContent = '-';
+    pctCell.textContent = '-';
+  }
+}
+
+function recalculateAllAttendance() {
+  const rows = document.querySelectorAll('.att-row');
+  rows.forEach(row => recalcAttRow(row));
+}
+
+async function handleSaveAttendance() {
+  const examId = document.getElementById('attExamSelect')?.value;
+  const classId = document.getElementById('attClassSelect')?.value;
+  const wDays = document.getElementById('attWorkingDays')?.value;
+
+  if (!examId || !classId) {
+    notify('Please select an examination and class', 'error');
+    return;
+  }
+
+  const totalWorkingDays = parseInt(wDays, 10);
+  if (isNaN(totalWorkingDays) || totalWorkingDays < 0) {
+    notify('Total working days must be a non-negative number', 'error');
+    return;
+  }
+
+  const rows = document.querySelectorAll('.att-row');
+  if (rows.length === 0) {
+    notify('No students found', 'error');
+    return;
+  }
+
+  const attendance_list = [];
+  let hasError = false;
+
+  rows.forEach(row => {
+    if (hasError) return;
+    const studentId = row.getAttribute('data-student-id');
+    const presInput = row.querySelector('.att-presence-input');
+    const teacherRemarksInput = row.querySelector('.att-teacher-remarks');
+    const principalRemarksInput = row.querySelector('.att-principal-remarks');
+    const presVal = presInput.value.trim();
+
+    const teacherRemarks = teacherRemarksInput ? teacherRemarksInput.value.trim() : '';
+    const principalRemarks = principalRemarksInput ? principalRemarksInput.value.trim() : '';
+
+    if (presVal === '') {
+      // Skip students with empty present days — treat as 0
+      attendance_list.push({
+        student_id: parseInt(studentId, 10),
+        presence: 0,
+        class_teacher_remarks: teacherRemarks,
+        principal_remarks: principalRemarks
+      });
+      return;
+    }
+
+    const pres = parseInt(presVal, 10);
+    if (isNaN(pres) || pres < 0) {
+      notify(`Invalid present days for student. Must be >= 0.`, 'error');
+      hasError = true;
+      return;
+    }
+    if (pres > totalWorkingDays) {
+      notify(`Present days (${pres}) cannot exceed total working days (${totalWorkingDays}).`, 'error');
+      hasError = true;
+      return;
+    }
+
+    attendance_list.push({
+      student_id: parseInt(studentId, 10),
+      presence: pres,
+      class_teacher_remarks: teacherRemarks,
+      principal_remarks: principalRemarks
+    });
+  });
+
+  if (hasError) return;
+
+  const saveBtn = document.getElementById('saveAttendanceBtn');
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
+
+  try {
+    const res = await apiClient.post(`/examinations/${examId}/attendance`, {
+      class_id: parseInt(classId, 10),
+      total_working_days: totalWorkingDays,
+      attendance_list
+    });
+
+    if (res && res.success) {
+      notify(res.message || 'Attendance saved successfully!', 'success');
+      await loadAttendanceSheet();
+    } else {
+      notify(res?.error || 'Failed to save attendance', 'error');
+    }
+  } catch (err) {
+    console.error('Save attendance error:', err);
+    notify(err.message || 'Failed to save attendance', 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 1rem;">save</span> Save Attendance';
+    }
+  }
+}
+

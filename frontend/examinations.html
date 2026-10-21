@@ -235,6 +235,73 @@
             </table>
           </div>
         </div>
+
+        <!-- ATTENDANCE ENTRY PANEL -->
+        <div class="card" id="attendanceEntryCard" style="padding: 1.25rem; border: 2px solid #e2e8f0; margin-top: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="material-symbols-outlined" style="color: #16a34a;">fact_check</span>
+                <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Class-Wise Attendance Entry</h3>
+              </div>
+              <p style="font-size: 0.78rem; color: #64748b; margin: 0.2rem 0 0;">
+                Enter total working days once for the class. Then enter each student's present days. Absent days are auto-calculated.
+              </p>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+              <button class="btn btn-primary btn-sm" id="saveAttendanceBtn" style="background: #16a34a; display: none;">
+                <span class="material-symbols-outlined" style="font-size: 1rem;">save</span> Save Attendance
+              </button>
+            </div>
+          </div>
+
+          <!-- Attendance Selector Controls -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 1.25rem; background: #f8fafc; padding: 0.85rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">SELECT EXAM *</label>
+              <select id="attExamSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select examination...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">CLASS *</label>
+              <select id="attClassSelect" class="form-control" style="font-size: 0.82rem;">
+                <option value="">Select class...</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">TOTAL WORKING DAYS *</label>
+              <input type="number" id="attWorkingDays" class="form-control" min="0" max="365" placeholder="e.g. 120" style="font-size: 0.82rem;">
+            </div>
+          </div>
+
+          <!-- Attendance Sheet Table -->
+          <div class="data-table-container" style="max-height: 520px; overflow-y: auto;">
+            <table class="data-table" id="attendanceSheetTable">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">Roll</th>
+                  <th>Student Name</th>
+                  <th style="width: 110px;">Present Days</th>
+                  <th style="width: 100px;">Absent Days</th>
+                  <th style="width: 110px;">Attendance %</th>
+                  <th style="min-width: 170px;">Class Teacher's Remarks</th>
+                  <th style="min-width: 170px;">Principal's Remarks</th>
+                </tr>
+              </thead>
+              <tbody id="attendanceSheetTbody">
+                <tr>
+                  <td colspan="7" style="text-align: center; padding: 3rem; color: #64748b;">
+                    Please select an Examination and Class above to load students for attendance entry.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </main>
     </div>
   </div>

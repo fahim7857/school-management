@@ -246,10 +246,19 @@
 
 /* Print Specific */
 @media print {
-  body {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  html, body {
     background: white !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   .app-sidebar,
@@ -261,18 +270,92 @@
 
   .app-container,
   .app-main,
-  .page-content {
+  .page-content,
+  #resultCardsContainer {
     margin: 0 !important;
     padding: 0 !important;
     display: block !important;
     width: 100% !important;
+    border: none !important;
   }
 
   .report-card-wrapper {
     box-shadow: none !important;
     border: 2px solid #004ac6 !important;
-    margin: 0 0 2rem 0 !important;
-    padding: 1rem !important;
-    page-break-after: always;
+    border-radius: 4px !important;
+    margin: 0 auto !important;
+    padding: 0.85rem 1.15rem !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .report-card-wrapper:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .report-header {
+    padding-bottom: 0.5rem !important;
+    margin-bottom: 0.6rem !important;
+  }
+
+  .report-logo-box {
+    width: 70px !important;
+    height: 70px !important;
+  }
+
+  .report-school-name {
+    font-size: 1.3rem !important;
+  }
+
+  .report-student-grid {
+    padding: 0.45rem 0.75rem !important;
+    margin-bottom: 0.6rem !important;
+    font-size: 0.78rem !important;
+    gap: 0.3rem 0.85rem !important;
+  }
+
+  .report-table {
+    margin-bottom: 0.6rem !important;
+    font-size: 0.75rem !important;
+  }
+
+  .report-table th,
+  .report-table td {
+    padding: 3.5px 6px !important;
+  }
+
+  .report-lower-grid {
+    margin-bottom: 0.6rem !important;
+    gap: 0.6rem !important;
+  }
+
+  .mini-data-table td,
+  .mini-data-table th {
+    padding: 2.5px 5px !important;
+  }
+
+  .report-remarks-grid {
+    margin-bottom: 0.65rem !important;
+    gap: 0.6rem !important;
+  }
+
+  .remarks-box {
+    min-height: 40px !important;
+    padding: 0.35rem 0.6rem !important;
+    font-size: 0.74rem !important;
+  }
+
+  .report-signatures {
+    padding-top: 1.25rem !important;
+  }
+
+  .sig-box div[style*="height: 28px"] {
+    height: 18px !important;
   }
 }

@@ -285,7 +285,13 @@ function renderAllCards(data, results) {
     `).join('');
 
     return `
-      <div class="report-card-wrapper">
+      <div class="report-card-container-item">
+        <div class="no-print" style="max-width: 820px; margin: 0 auto 0.4rem auto; display: flex; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="printSingleCard(${st.student_id})" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; display: inline-flex; align-items: center; gap: 0.3rem; background: white; border: 1px solid #cbd5e1; cursor: pointer;">
+            <span class="material-symbols-outlined" style="font-size: 0.95rem;">print</span> Print Student Card
+          </button>
+        </div>
+        <div class="report-card-wrapper">
         <!-- Official Header -->
         <div class="report-header">
           <div class="report-logo-box">
@@ -450,6 +456,7 @@ function renderAllCards(data, results) {
           </div>
         </div>
       </div>
+    </div>
     `;
   }).join('');
 
@@ -526,6 +533,16 @@ async function handleSaveStudentMeta(e) {
   }
 }
 
+async function printSingleCard(studentId) {
+  const stuSel = document.getElementById('cardStudentSelect');
+  if (stuSel) {
+    stuSel.value = String(studentId);
+    await generateResultCards();
+    window.print();
+  }
+}
+
+window.printSingleCard = printSingleCard;
 window.generateResultCards = generateResultCards;
 window.openMetaEditor = openMetaEditor;
 window.closeModal = closeModal;

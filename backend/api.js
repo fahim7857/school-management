@@ -4239,10 +4239,10 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
         obtained_gpa: hasFail ? 0.00 : Math.round(obtainedGpa * 100) / 100,
         overall_grade: hasFail ? 'F' : overallGrade.grade,
         remarks: hasFail ? 'Fail' : overallGrade.remarks,
-        total_working_days: (meta && meta.total_working_days != null) ? meta.total_working_days : (meta?.total_working_days ?? 0),
-        presence: (meta && meta.presence != null) ? meta.presence : (meta?.presence_days ?? 0),
-        absent: (meta && meta.absent != null) ? meta.absent : (meta?.absent_days ?? 0),
-        percentage_of_attendance: (meta && meta.percentage_of_attendance != null) ? meta.percentage_of_attendance : (meta?.total_working_days ? Math.round(((meta.presence ?? meta.presence_days ?? 0) / meta.total_working_days) * 100) : 0),
+        total_working_days: meta ? (meta.total_working_days ?? null) : null,
+        presence: meta ? (meta.presence ?? meta.presence_days ?? null) : null,
+        absent: meta ? (meta.absent ?? meta.absent_days ?? null) : null,
+        percentage_of_attendance: meta ? (meta.percentage_of_attendance ?? (meta.total_working_days && (meta.presence != null || meta.presence_days != null) ? Math.round(((meta.presence ?? meta.presence_days) / meta.total_working_days) * 1000) / 10 : null)) : null,
         manners_discipline: meta?.manners_discipline ?? '',
         class_teacher_remarks: meta?.class_teacher_remarks ?? '',
         principal_remarks: meta?.principal_remarks ?? ''
@@ -4277,7 +4277,159 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
   }
 });
 
-// Update student metadata (working days, presence, remarks)
+// Get class-wise attendance for examination
+apiRouter.get('/examinations/:id/attendance', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+
+    if (!examId || !classId) {
+      return res.status(400).json({ success: false, error: 'Examination ID and class_id are required' });
+    }
+
+    const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
+    if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
+
+    const students = db.prepare('SELECT id, name, roll_number, stream FROM students WHERE class_id = ? ORDER BY roll_number ASC').all(classId);
+    const existingResults = db.prepare('SELECT * FROM student_exam_results WHERE examination_id = ? AND class_id = ?').all(examId, classId);
+
+    // Determine class-wide working days from existing entries if any
+    let classWorkingDays = null;
+    const withWorkingDays = existingResults.find(r => r.total_working_days != null && r.total_working_days > 0);
+    if (withWorkingDays) {
+      classWorkingDays = withWorkingDays.total_working_days;
+    }
+
+    const list = students.map(st => {
+      const rec = existingResults.find(r => r.student_id === st.id);
+      const pres = rec ? (rec.presence ?? rec.presence_days ?? null) : null;
+      const wDays = (rec && rec.total_working_days != null) ? rec.total_working_days : (classWorkingDays ?? null);
+      let abs = rec ? (rec.absent ?? rec.absent_days ?? null) : null;
+      if (abs === null && wDays !== null && pres !== null) {
+        abs = Math.max(0, wDays - pres);
+      }
+      let pct = rec ? (rec.percentage_of_attendance ?? null) : null;
+      if (pct === null && wDays && pres !== null) {
+        pct = Math.round((pres / wDays) * 1000) / 10;
+      }
+
+      return {
+        student_id: st.id,
+        name: st.name,
+        roll_number: st.roll_number,
+        stream: st.stream,
+        presence: pres,
+        absent: abs,
+        percentage_of_attendance: pct,
+        class_teacher_remarks: rec ? (rec.class_teacher_remarks ?? '') : '',
+        principal_remarks: rec ? (rec.principal_remarks ?? '') : ''
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        exam_id: examId,
+        class_id: classId,
+        total_working_days: classWorkingDays ?? '',
+        students: list
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Bulk save class-wise attendance for examination
+apiRouter.post('/examinations/:id/attendance', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const { class_id, total_working_days, attendance_list } = req.body;
+
+    if (!examId || !class_id) {
+      return res.status(400).json({ success: false, error: 'Examination ID and class_id are required' });
+    }
+
+    const cId = parseInt(class_id, 10);
+    const wDays = parseInt(total_working_days, 10);
+
+    if (isNaN(wDays) || wDays < 0) {
+      return res.status(400).json({ success: false, error: 'Total working days must be a non-negative number' });
+    }
+
+    if (!Array.isArray(attendance_list) || attendance_list.length === 0) {
+      return res.status(400).json({ success: false, error: 'attendance_list must be a non-empty array' });
+    }
+
+    // Validate entries before writing
+    for (const item of attendance_list) {
+      const pres = parseInt(item.presence, 10);
+      if (isNaN(pres) || pres < 0) {
+        return res.status(400).json({ success: false, error: `Invalid present days for student ID ${item.student_id}. Must be >= 0.` });
+      }
+      if (pres > wDays) {
+        return res.status(400).json({ success: false, error: `Present days (${pres}) cannot exceed total working days (${wDays}) for student ID ${item.student_id}.` });
+      }
+    }
+
+    const exam = db.prepare('SELECT stream FROM examinations WHERE id = ?').get(examId);
+    const defaultStream = exam ? exam.stream : 'General';
+
+    // Save attendance while preserving all marks, grades, and remarks
+    for (const item of attendance_list) {
+      const sId = parseInt(item.student_id, 10);
+      const pres = parseInt(item.presence, 10);
+      const abs = Math.max(0, wDays - pres);
+      const attPct = wDays > 0 ? (Math.round((pres / wDays) * 1000) / 10) : 0;
+
+      const existing = db.prepare('SELECT id, class_teacher_remarks, principal_remarks FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
+
+      // Support optional remarks: preserve existing if omitted (undefined), allow deliberate clearing if empty string
+      const teacherRemarks = (item.class_teacher_remarks !== undefined)
+        ? String(item.class_teacher_remarks || '')
+        : (existing ? (existing.class_teacher_remarks || '') : '');
+      const princRemarks = (item.principal_remarks !== undefined)
+        ? String(item.principal_remarks || '')
+        : (existing ? (existing.principal_remarks || '') : '');
+
+      if (existing) {
+        db.prepare(`
+          UPDATE student_exam_results
+          SET total_working_days = ?,
+              presence = ?,
+              presence_days = ?,
+              absent = ?,
+              absent_days = ?,
+              percentage_of_attendance = ?,
+              class_teacher_remarks = ?,
+              principal_remarks = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks, existing.id);
+      } else {
+        const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
+        const str = student ? student.stream : defaultStream;
+
+        db.prepare(`
+          INSERT INTO student_exam_results (
+            examination_id, student_id, class_id, stream,
+            total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance,
+            manners_discipline, class_teacher_remarks, principal_remarks
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Good', ?, ?)
+        `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Class attendance recorded successfully!'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update student metadata (working days, presence, remarks) - remarks are fully optional
 apiRouter.post('/examinations/:id/student-meta', (req, res) => {
   try {
     const examId = parseInt(req.params.id, 10);
@@ -4288,18 +4440,23 @@ apiRouter.post('/examinations/:id/student-meta', (req, res) => {
     const sId = parseInt(student_id, 10);
     const wDays = parseInt(total_working_days, 10) || 0;
     const pres = parseInt(presence, 10) || 0;
-    const abs = parseInt(absent, 10) || 0;
-    const attPct = wDays > 0 ? Math.round((pres / wDays) * 100) : 0;
+    const abs = (absent !== undefined && absent !== '' && !isNaN(parseInt(absent, 10))) ? parseInt(absent, 10) : Math.max(0, wDays - pres);
+    const attPct = wDays > 0 ? (Math.round((pres / wDays) * 1000) / 10) : 0;
 
-    const existing = db.prepare('SELECT id FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
+    const existing = db.prepare('SELECT id, class_teacher_remarks, principal_remarks, manners_discipline FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
+
+    // Remarks are optional: use passed string or keep existing if omitted
+    const teacherRemarks = (class_teacher_remarks !== undefined) ? String(class_teacher_remarks || '') : (existing ? (existing.class_teacher_remarks || '') : '');
+    const princRemarks = (principal_remarks !== undefined) ? String(principal_remarks || '') : (existing ? (existing.principal_remarks || '') : '');
+    const disc = (manners_discipline !== undefined && manners_discipline !== '') ? manners_discipline : (existing ? (existing.manners_discipline || 'Very Good') : 'Very Good');
 
     if (existing) {
       db.prepare(`
         UPDATE student_exam_results
-        SET total_working_days = ?, presence = ?, absent = ?, percentage_of_attendance = ?, manners_discipline = ?,
+        SET total_working_days = ?, presence = ?, presence_days = ?, absent = ?, absent_days = ?, percentage_of_attendance = ?, manners_discipline = ?,
             class_teacher_remarks = ?, principal_remarks = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '', existing.id);
+      `).run(wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks, existing.id);
     } else {
       const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
       const exam = db.prepare('SELECT class_id, stream FROM examinations WHERE id = ?').get(examId);
@@ -4307,9 +4464,9 @@ apiRouter.post('/examinations/:id/student-meta', (req, res) => {
       const str = student ? student.stream : (exam ? exam.stream : 'General');
 
       db.prepare(`
-        INSERT INTO student_exam_results (examination_id, student_id, class_id, stream, total_working_days, presence, absent, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(examId, sId, cId, str, wDays, pres, abs, attPct, manners_discipline || '', class_teacher_remarks || '', principal_remarks || '');
+        INSERT INTO student_exam_results (examination_id, student_id, class_id, stream, total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks);
     }
 
     res.json({ success: true, message: 'Student examination metadata saved successfully' });
