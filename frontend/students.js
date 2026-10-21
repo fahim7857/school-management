@@ -1,4 +1,5 @@
 // Students Page Frontend Logic
+const today = (typeof getLocalIsoDate === 'function') ? getLocalIsoDate() : new Date().toLocaleDateString('en-CA');
 let allStudents = [];
 let allClasses = [];
 
@@ -376,15 +377,15 @@ function renderStudentsTable(students) {
           <button class="btn btn-secondary btn-sm" title="Edit Student" style="padding: 0.35rem 0.55rem;" onclick="openEditStudentModal(${st.id})">
             <span class="material-symbols-outlined" style="font-size: 1rem;">edit</span>
           </button>
-          <button class="btn btn-secondary btn-sm" title="Delete Student" style="padding: 0.35rem 0.55rem; color: #dc2626;" onclick="deleteStudent(${st.id}, '${st.name.replace(/'/g, "\\'")}', ${st.roll_number})">
+          <button class="btn btn-secondary btn-sm" title="Delete Student" style="padding: 0.35rem 0.55rem; color: #dc2626;" onclick="deleteStudent(${st.id}, '${st.name.replace(/'/g, "\\'")}', '${st.roll_number}')">
             <span class="material-symbols-outlined" style="font-size: 1rem;">delete</span>
           </button>
           ${!isPaid ? `
-            <button class="btn btn-primary btn-sm" style="padding: 0.35rem 0.65rem;" onclick="quickPayStudent(${st.id}, '${st.name.replace(/'/g, "\\'")}', ${st.roll_number}, ${st.monthly_fee})">
+            <button class="btn btn-primary btn-sm" style="padding: 0.35rem 0.65rem;" onclick="quickPayStudent(${st.id}, '${st.name.replace(/'/g, "\\'")}', '${st.roll_number}', ${st.monthly_fee})">
               Collect
             </button>
           ` : `
-            <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.65rem;" onclick="viewLatestReceipt(${st.id}, '${st.name.replace(/'/g, "\\'")}', ${st.roll_number}, ${st.monthly_fee})">
+            <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.65rem;" onclick="viewLatestReceipt(${st.id}, '${st.name.replace(/'/g, "\\'")}', '${st.roll_number}', ${st.monthly_fee})">
               Receipt
             </button>
           `}

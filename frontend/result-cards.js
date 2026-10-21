@@ -369,20 +369,20 @@ function renderAllCards(data, results) {
             <table class="mini-data-table">
               <tr>
                 <td>Total Working Days</td>
-                <td style="font-weight: 700; text-align: right;">${st.total_working_days}</td>
+                <td style="font-weight: 700; text-align: right;">${st.total_working_days ?? '-'}</td>
                 <td>Presence (Days)</td>
-                <td style="font-weight: 700; text-align: right;">${st.presence}</td>
+                <td style="font-weight: 700; text-align: right;">${st.presence ?? '-'}</td>
               </tr>
               <tr>
                 <td>Absent (Days)</td>
-                <td style="font-weight: 700; text-align: right;">${st.absent}</td>
+                <td style="font-weight: 700; text-align: right;">${st.absent ?? '-'}</td>
                 <td>Attendance %</td>
-                <td style="font-weight: 700; text-align: right; color: #004ac6;">${st.percentage_of_attendance}%</td>
+                <td style="font-weight: 700; text-align: right; color: #004ac6;">${st.percentage_of_attendance !== undefined && st.percentage_of_attendance !== null && st.percentage_of_attendance !== '' ? st.percentage_of_attendance + '%' : '-'}</td>
               </tr>
               <tr>
                 <td colspan="2">Manners & Discipline</td>
                 <td colspan="2" style="font-weight: 700; text-align: center; color: #166534; background: #f0fdf4;">
-                  ${escapeHtml(st.manners_discipline)}
+                  ${escapeHtml(st.manners_discipline || '-')}
                 </td>
               </tr>
               <tr>
@@ -423,31 +423,28 @@ function renderAllCards(data, results) {
         <div class="report-remarks-grid">
           <div class="remarks-box">
             <div class="remarks-title">Class Teacher's Remarks</div>
-            <div style="font-style: italic; color: #1e293b;">"${escapeHtml(st.class_teacher_remarks)}"</div>
+            <div style="font-style: italic; color: #1e293b;">${st.class_teacher_remarks ? `"${escapeHtml(st.class_teacher_remarks)}"` : '-'}</div>
           </div>
           <div class="remarks-box">
             <div class="remarks-title">Principal's Remarks</div>
-            <div style="font-style: italic; color: #1e293b;">"${escapeHtml(st.principal_remarks)}"</div>
+            <div style="font-style: italic; color: #1e293b;">${st.principal_remarks ? `"${escapeHtml(st.principal_remarks)}"` : '-'}</div>
           </div>
         </div>
 
         <!-- Signatures Footer -->
         <div class="report-signatures">
           <div class="sig-box">
+            <div style="height: 28px;"></div>
             <div class="sig-line"></div>
             <div class="sig-label">Guardian's Signature</div>
           </div>
           <div class="sig-box">
-            <div style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 1.1rem; color: #004ac6; height: 24px;">
-              ${escapeHtml(st.class_teacher)}
-            </div>
+            <div style="height: 28px;"></div>
             <div class="sig-line"></div>
             <div class="sig-label">Class Teacher</div>
           </div>
           <div class="sig-box">
-            <div style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 1.15rem; color: #0f172a; height: 24px;">
-              Abdur Rahman
-            </div>
+            <div style="height: 28px;"></div>
             <div class="sig-line"></div>
             <div class="sig-label">Headmaster / Principal</div>
           </div>
@@ -484,12 +481,12 @@ function openMetaEditor() {
 
   document.getElementById('metaStudentId').value = studentObj.student_id;
   document.getElementById('metaStudentName').textContent = `#${studentObj.roll} • ${studentObj.name}`;
-  document.getElementById('metaWorkingDays').value = studentObj.total_working_days || 120;
-  document.getElementById('metaPresence').value = studentObj.presence || 112;
-  document.getElementById('metaAbsent').value = studentObj.absent || 8;
+  document.getElementById('metaWorkingDays').value = studentObj.total_working_days ?? '';
+  document.getElementById('metaPresence').value = studentObj.presence ?? '';
+  document.getElementById('metaAbsent').value = studentObj.absent ?? '';
   document.getElementById('metaDiscipline').value = studentObj.manners_discipline || 'Very Good';
-  document.getElementById('metaTeacherRemarks').value = studentObj.class_teacher_remarks || 'Attentive and well-disciplined student.';
-  document.getElementById('metaPrincipalRemarks').value = studentObj.principal_remarks || 'Promoted with commendable performance.';
+  document.getElementById('metaTeacherRemarks').value = studentObj.class_teacher_remarks ?? '';
+  document.getElementById('metaPrincipalRemarks').value = studentObj.principal_remarks ?? '';
 
   showModal('metaModal');
 }

@@ -1483,16 +1483,17 @@ apiRouter.post('/payments', (req, res) => {
     const receiptNo = `REC-${student.academic_year}-${String(1000 + maxRec.cnt + 1).padStart(4, '0')}`;
 
     // Fixed Fee Protection Rule: student monthly tuition fee is predefined and fixed
+    const expectedFee = student.monthly_fee || 0;
     if (req.body.amount !== undefined && req.body.amount !== null && String(req.body.amount).trim() !== '') {
       const enteredAmount = parseFloat(req.body.amount);
-      if (isNaN(enteredAmount) || Math.abs(enteredAmount - student.monthly_fee) > 0.01) {
+      if (expectedFee > 0 && (isNaN(enteredAmount) || Math.abs(enteredAmount - expectedFee) > 0.01)) {
         return res.status(400).json({
           success: false,
-          error: `Student monthly tuition fee is fixed at ৳${student.monthly_fee}. Collecting partial or modified amounts (৳${enteredAmount}) is not allowed. Use "Others" income for miscellaneous collections.`
+          error: `Student monthly tuition fee is fixed at ৳${expectedFee}. Collecting partial or modified amounts (৳${enteredAmount}) is not allowed. Use "Others" income for miscellaneous collections.`
         });
       }
     }
-    const finalAmount = student.monthly_fee;
+    const finalAmount = expectedFee > 0 ? expectedFee : (parseFloat(req.body.amount) || 0);
 
     const insert = db.prepare(`
       INSERT INTO payments (
@@ -3104,6 +3105,9 @@ apiRouter.get('/teachers/payment-summary', (req, res) => {
         stream: t.stream || 'General',
         is_paid: Boolean(payRow),
         payment_date: payRow ? payRow.payment_date : null,
+        salary_month: payRow ? payRow.salary_month : selectedMonth,
+        payment_method: payRow ? (payRow.payment_method || 'Cash') : 'Cash',
+        note: payRow ? (payRow.note || '') : '',
         net_paid: netPaid,
         advance_deducted: advDeducted,
         outstanding_advance: outstandingAdvance,
@@ -3115,6 +3119,24 @@ apiRouter.get('/teachers/payment-summary', (req, res) => {
     const dateObj = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
     const selectedMonthName = dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
+    let paymentsQuery = `
+      SELECT tsp.*, t.name as teacher_name, t.phone as teacher_phone
+      FROM teacher_salary_payments tsp
+      JOIN teachers t ON tsp.teacher_id = t.id
+      WHERE 1=1
+    `;
+    const pParams = [];
+    if (req.query.month && /^\d{4}-\d{2}$/.test(req.query.month)) {
+      paymentsQuery += ` AND tsp.salary_month = ?`;
+      pParams.push(req.query.month);
+    }
+    if (req.query.teacher_id) {
+      paymentsQuery += ` AND tsp.teacher_id = ?`;
+      pParams.push(parseInt(req.query.teacher_id, 10));
+    }
+    paymentsQuery += ` ORDER BY tsp.payment_date DESC, tsp.id DESC`;
+    const paymentsList = db.prepare(paymentsQuery).all(...pParams);
+
     res.json({
       success: true,
       data: {
@@ -3124,7 +3146,10 @@ apiRouter.get('/teachers/payment-summary', (req, res) => {
         totalFixedSalary,
         totalPaidInMonth,
         totalAdvanceDeductedInMonth,
-        teachers: teacherBreakdown
+        teachers: teacherBreakdown,
+        payments: paymentsList,
+        salary_payments: paymentsList,
+        salaryPayments: paymentsList
       }
     });
   } catch (error) {
@@ -3534,24 +3559,38 @@ apiRouter.post('/teachers/:id/pay-fixed', (req, res) => {
 // Teacher Advance Statement
 apiRouter.get('/teachers/advance-statement', (req, res) => {
   try {
-    const advances = db.prepare(`
+    let query = `
       SELECT ta.*, t.name as teacher_name, t.phone as teacher_phone, t.fixed_salary
       FROM teacher_advances ta
       JOIN teachers t ON ta.teacher_id = t.id
-      ORDER BY ta.advance_date DESC, ta.id DESC
-    `).all();
+      WHERE 1=1
+    `;
+    const params = [];
+    if (req.query.month && /^\d{4}-\d{2}$/.test(req.query.month)) {
+      query += ` AND ta.advance_date LIKE ?`;
+      params.push(`${req.query.month}%`);
+    }
+    if (req.query.teacher_id) {
+      query += ` AND ta.teacher_id = ?`;
+      params.push(parseInt(req.query.teacher_id, 10));
+    }
+    query += ` ORDER BY ta.advance_date DESC, ta.id DESC`;
+
+    const advances = db.prepare(query).all(...params);
 
     let totalAmount = 0;
     const items = advances.map(a => {
       totalAmount += a.amount || 0;
       return {
         id: a.id,
+        teacher_id: a.teacher_id,
         date: a.advance_date,
         teacher_name: a.teacher_name,
         teacher_phone: a.teacher_phone,
         fixed_salary: a.fixed_salary,
         amount: a.amount,
         is_recovered: a.is_recovered,
+        payment_method: a.payment_method || 'Cash',
         note: a.note || 'Salary Advance'
       };
     });
@@ -4200,13 +4239,13 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
         obtained_gpa: hasFail ? 0.00 : Math.round(obtainedGpa * 100) / 100,
         overall_grade: hasFail ? 'F' : overallGrade.grade,
         remarks: hasFail ? 'Fail' : overallGrade.remarks,
-        total_working_days: meta?.total_working_days || 120,
-        presence: meta?.presence || 112,
-        absent: meta?.absent || 8,
-        percentage_of_attendance: meta?.percentage_of_attendance || (meta?.total_working_days ? Math.round((meta.presence / meta.total_working_days) * 100) : 93),
-        manners_discipline: meta?.manners_discipline || 'Satisfactory',
-        class_teacher_remarks: meta?.class_teacher_remarks || 'Hardworking student, keep it up.',
-        principal_remarks: meta?.principal_remarks || 'Promoted with commendable performance.'
+        total_working_days: (meta && meta.total_working_days != null) ? meta.total_working_days : (meta?.total_working_days ?? 0),
+        presence: (meta && meta.presence != null) ? meta.presence : (meta?.presence_days ?? 0),
+        absent: (meta && meta.absent != null) ? meta.absent : (meta?.absent_days ?? 0),
+        percentage_of_attendance: (meta && meta.percentage_of_attendance != null) ? meta.percentage_of_attendance : (meta?.total_working_days ? Math.round(((meta.presence ?? meta.presence_days ?? 0) / meta.total_working_days) * 100) : 0),
+        manners_discipline: meta?.manners_discipline ?? '',
+        class_teacher_remarks: meta?.class_teacher_remarks ?? '',
+        principal_remarks: meta?.principal_remarks ?? ''
       };
     });
 

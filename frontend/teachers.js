@@ -698,11 +698,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Salary Payments Table
       const salBody = document.getElementById('detailSalaryPaymentsBody');
-      if (t.salary_payments && t.salary_payments.length > 0) {
-        salBody.innerHTML = t.salary_payments.map(p => `
+      const payments = t.salary_payments || t.salaryPayments || [];
+      if (payments && payments.length > 0) {
+        salBody.innerHTML = payments.map(p => `
           <tr>
             <td><strong>${p.salary_month}</strong></td>
-            <td>${p.payment_date}</td>
+            <td>${p.payment_date || '-'}</td>
             <td>৳${(p.fixed_salary || 0).toLocaleString()}</td>
             <td style="color: #b45309;">-৳${(p.advance_deducted || 0).toLocaleString()}</td>
             <td style="color: #16a34a; font-weight: 700;">৳${(p.net_paid || 0).toLocaleString()}</td>
@@ -738,6 +739,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function renderSalaryPayments(rows) {
+    if (!paymentHistoryTableBody) return;
+    if (!rows || rows.length === 0) {
+      paymentHistoryTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">No salary payments or advances recorded for this period.</td></tr>';
+      return;
+    }
+
+    paymentHistoryTableBody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.date}</td>
+        <td><strong>${r.teacher_name}</strong></td>
+        <td>${r.type}</td>
+        <td>${r.desc}</td>
+        <td>${r.gross}</td>
+        <td>${r.adj}</td>
+        <td>${r.net}</td>
+      </tr>
+    `).join('');
+  }
+
   // ----------------------------------------------------
   // TAB 2: PAYMENT & ADVANCE HISTORY LOG
   // ----------------------------------------------------
@@ -747,12 +768,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const monthVal = paymentLogMonthInput?.value || '';
 
       const [advRes, payRes] = await Promise.all([
-        apiClient.get('/teachers/advance-statement'),
-        apiClient.get(`/teachers/payment-summary?month=${monthVal}`)
+        apiClient.get('/teachers/advance-statement', monthVal ? { month: monthVal } : {}),
+        apiClient.get('/teachers/payment-summary', monthVal ? { month: monthVal } : {})
       ]);
 
       const advances = (advRes && advRes.advances) ? advRes.advances : [];
-      const teachersData = (payRes && payRes.data && payRes.data.teachers) ? payRes.data.teachers : [];
+      const salaryList = (payRes && payRes.data && (payRes.data.payments || payRes.data.salary_payments))
+        ? (payRes.data.payments || payRes.data.salary_payments)
+        : (payRes && payRes.data && payRes.data.teachers ? payRes.data.teachers.filter(t => t.is_paid) : []);
 
       const rows = [];
 
@@ -763,7 +786,7 @@ document.addEventListener('DOMContentLoaded', () => {
             date: a.date,
             teacher_name: a.teacher_name,
             type: '<span style="background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">Advance</span>',
-            desc: a.note || 'Disbursed Advance',
+            desc: `${a.note || 'Disbursed Advance'}${a.payment_method ? ` (${a.payment_method})` : ''}`,
             gross: '-',
             adj: '-',
             net: `<strong style="color: #dc2626;">৳${(a.amount || 0).toLocaleString()}</strong>`
@@ -772,36 +795,23 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       // Collect paid salaries
-      teachersData.filter(t => t.is_paid).forEach(t => {
+      salaryList.forEach(p => {
+        const payMonth = p.salary_month || monthVal;
+        const method = p.payment_method || 'Cash';
+        const noteText = p.note ? ` - ${p.note}` : '';
         rows.push({
-          date: t.payment_date || monthVal,
-          teacher_name: t.teacher_name,
+          date: p.payment_date || payMonth,
+          teacher_name: p.teacher_name,
           type: '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;">Fixed Salary</span>',
-          desc: `Salary for ${monthVal}`,
-          gross: `৳${(t.fixed_salary || 0).toLocaleString()}`,
-          adj: t.advance_deducted > 0 ? `<span style="color: #b45309;">-৳${t.advance_deducted.toLocaleString()}</span>` : '৳0',
-          net: `<strong style="color: #16a34a;">৳${(t.net_paid || 0).toLocaleString()}</strong>`
+          desc: `Salary for ${payMonth} (${method})${noteText}`,
+          gross: `৳${(p.fixed_salary || 0).toLocaleString()}`,
+          adj: (p.advance_deducted || 0) > 0 ? `<span style="color: #b45309;">-৳${(p.advance_deducted || 0).toLocaleString()}</span>` : '৳0',
+          net: `<strong style="color: #16a34a;">৳${(p.net_paid || 0).toLocaleString()}</strong>`
         });
       });
 
       rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-      if (rows.length === 0) {
-        paymentHistoryTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 2rem; color: #64748b;">No salary payments or advances recorded for this period.</td></tr>';
-        return;
-      }
-
-      paymentHistoryTableBody.innerHTML = rows.map(r => `
-        <tr>
-          <td>${r.date}</td>
-          <td><strong>${r.teacher_name}</strong></td>
-          <td>${r.type}</td>
-          <td>${r.desc}</td>
-          <td>${r.gross}</td>
-          <td>${r.adj}</td>
-          <td>${r.net}</td>
-        </tr>
-      `).join('');
+      renderSalaryPayments(rows);
 
     } catch (e) {
       console.error(e);

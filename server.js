@@ -31,7 +31,7 @@ export async function startServer() {
   const PORT = process.env.PORT || (isDirectRun && !isHosted ? 3000 : 0);
 
   // Initialize SQLite database
-  initDatabase();
+  await initDatabase();
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
