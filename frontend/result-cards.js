@@ -92,6 +92,10 @@ function setupEventListeners() {
   document.getElementById('loadCardsBtn')?.addEventListener('click', generateResultCards);
   document.getElementById('openEditMetaBtn')?.addEventListener('click', openMetaEditor);
   document.getElementById('metaForm')?.addEventListener('submit', handleSaveStudentMeta);
+  document.getElementById('printAllBtn')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    printAllResults();
+  });
 }
 
 async function loadInitialFilters() {
@@ -533,15 +537,47 @@ async function handleSaveStudentMeta(e) {
   }
 }
 
+async function printAllResults() {
+  const examId = document.getElementById('cardExamSelect')?.value;
+  const classId = document.getElementById('cardClassSelect')?.value;
+
+  if (!examId || !classId) {
+    notify('Please select both an Examination and Class first', 'error');
+    return;
+  }
+
+  const stuSel = document.getElementById('cardStudentSelect');
+  // Ensure "All Students in Class" is selected so every student's card is rendered
+  if (stuSel && stuSel.value !== '') {
+    stuSel.value = '';
+    await generateResultCards();
+  } else if (!currentResultsData || !currentResultsData.results || currentResultsData.results.length === 0) {
+    await generateResultCards();
+  }
+
+  setTimeout(() => {
+    window.print();
+  }, 100);
+}
+
 async function printSingleCard(studentId) {
   const stuSel = document.getElementById('cardStudentSelect');
+  const prevVal = stuSel ? stuSel.value : '';
   if (stuSel) {
     stuSel.value = String(studentId);
     await generateResultCards();
-    window.print();
+    setTimeout(() => {
+      window.print();
+      // Restore all students if we were previously viewing all students
+      if (prevVal === '') {
+        stuSel.value = '';
+        generateResultCards();
+      }
+    }, 100);
   }
 }
 
+window.printAllResults = printAllResults;
 window.printSingleCard = printSingleCard;
 window.generateResultCards = generateResultCards;
 window.openMetaEditor = openMetaEditor;

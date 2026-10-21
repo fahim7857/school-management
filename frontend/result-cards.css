@@ -257,6 +257,11 @@
     padding: 0 !important;
     width: 100% !important;
     height: auto !important;
+    min-height: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
@@ -276,7 +281,30 @@
     padding: 0 !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    position: static !important;
     border: none !important;
+  }
+
+  .report-card-container-item {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .report-card-container-item:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
   .report-card-wrapper {
@@ -290,11 +318,6 @@
     box-sizing: border-box !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-    page-break-after: always !important;
-    break-after: page !important;
-  }
-
-  .report-card-wrapper:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
