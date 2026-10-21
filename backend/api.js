@@ -3774,6 +3774,51 @@ apiRouter.get('/academic/available-subjects', (req, res) => {
   }
 });
 
+// Academic Teacher-Subject Assignments List Endpoint
+apiRouter.get('/academic/assignments', (req, res) => {
+  try {
+    const { class_id, stream } = req.query;
+    let query = `
+      SELECT 
+        s.id as subject_id,
+        s.name as subject_name,
+        s.code as subject_code,
+        s.stream,
+        c.name as class_name,
+        ta.teacher_id,
+        t.name as teacher_name,
+        t.phone as teacher_phone,
+        t.stream as teacher_stream
+      FROM subjects s
+      JOIN classes c ON s.class_id = c.id
+      LEFT JOIN teacher_assignments ta ON s.id = ta.subject_id AND ta.is_active = 1
+      LEFT JOIN teachers t ON ta.teacher_id = t.id
+      WHERE s.is_active = 1
+    `;
+    const params = [];
+
+    if (class_id) {
+      query += ` AND s.class_id = ?`;
+      params.push(parseInt(class_id, 10));
+    }
+    if (stream && stream !== 'All') {
+      query += ` AND s.stream = ?`;
+      params.push(stream);
+    }
+    if (req.query.academic_year_id) {
+      query += ` AND s.academic_year_id = ?`;
+      params.push(parseInt(req.query.academic_year_id, 10));
+    }
+
+    query += ` ORDER BY s.name ASC`;
+
+    const assignments = db.prepare(query).all(...params);
+    res.json({ success: true, data: assignments });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Super Admin Teacher-Subject Assignment Endpoint
 apiRouter.post('/academic/assignments', (req, res) => {
   try {

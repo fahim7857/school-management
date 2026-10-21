@@ -329,7 +329,9 @@ export async function initDatabase() {
       advance_date TEXT NOT NULL,
       amount REAL NOT NULL,
       recovered_amount REAL DEFAULT 0,
-      remaining_balance REAL NOT NULL,
+      remaining_balance REAL DEFAULT 0,
+      is_recovered INTEGER DEFAULT 0,
+      payment_method TEXT DEFAULT 'Cash',
       status TEXT DEFAULT 'active',
       voucher_no TEXT,
       note TEXT,
@@ -466,7 +468,9 @@ export async function initDatabase() {
     "ALTER TABLE subjects ADD COLUMN is_optional INTEGER DEFAULT 0;",
     "ALTER TABLE students ADD COLUMN branch TEXT DEFAULT '';",
     "ALTER TABLE teacher_salary_payments ADD COLUMN advance_deducted REAL DEFAULT 0;",
-    "ALTER TABLE teacher_salary_payments ADD COLUMN payment_method TEXT DEFAULT 'Cash';"
+    "ALTER TABLE teacher_salary_payments ADD COLUMN payment_method TEXT DEFAULT 'Cash';",
+    "ALTER TABLE teacher_advances ADD COLUMN is_recovered INTEGER DEFAULT 0;",
+    "ALTER TABLE teacher_advances ADD COLUMN payment_method TEXT DEFAULT 'Cash';"
   ];
 
   for (const m of migrations) {
