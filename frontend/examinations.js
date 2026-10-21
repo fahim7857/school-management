@@ -303,6 +303,8 @@ async function handleExamSelectChange() {
 
   if (!examId) {
     classSel.innerHTML = '<option value="">Select class...</option>';
+    currentExamData = null;
+    await loadMarksSheet();
     return;
   }
 
@@ -311,24 +313,44 @@ async function handleExamSelectChange() {
 
   currentExamData = exam;
 
-  // Filter classes by exam stream
-  const filteredClasses = activeClasses.filter(c => c.stream === exam.stream);
+  // Filter classes by exam stream (and class_id if exam is class-scoped)
+  let filteredClasses = activeClasses.filter(c => c.stream === exam.stream);
+  if (exam.class_id) {
+    const classScoped = filteredClasses.filter(c => c.id === exam.class_id);
+    if (classScoped.length > 0) {
+      filteredClasses = classScoped;
+    }
+  }
+
   let html = '<option value="">Select class...</option>';
   filteredClasses.forEach(c => {
     html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
   });
   classSel.innerHTML = html;
 
-  if (filteredClasses.length > 0) {
-    classSel.value = filteredClasses[0].id;
+  if (exam.class_id) {
+    classSel.value = String(exam.class_id);
     await handleClassSelectChange();
+  } else if (filteredClasses.length > 0) {
+    // Select first class that has active students, or fallback to first class
+    const preferredClass = filteredClasses.find(c => (c.student_count || 0) > 0) || filteredClasses[0];
+    classSel.value = String(preferredClass.id);
+    await handleClassSelectChange();
+  } else {
+    await loadMarksSheet();
   }
 }
 
 async function handleClassSelectChange() {
   const classId = document.getElementById('sheetClassSelect')?.value;
   const subjSel = document.getElementById('sheetSubjectSelect');
-  if (!subjSel || !classId || !currentExamData) return;
+  if (!subjSel || !currentExamData) return;
+
+  if (!classId) {
+    subjSel.innerHTML = '<option value="">Select subject...</option>';
+    await loadMarksSheet();
+    return;
+  }
 
   subjSel.innerHTML = '<option value="">Loading subjects...</option>';
 
@@ -348,12 +370,13 @@ async function handleClassSelectChange() {
 
       if (subjects.length > 0) {
         subjSel.value = subjects[0].id;
-        await loadMarksSheet();
       }
+      await loadMarksSheet();
     }
   } catch (err) {
     console.error('Error fetching subjects for class:', err);
     subjSel.innerHTML = '<option value="">Failed to load subjects</option>';
+    await loadMarksSheet();
   }
 }
 
@@ -387,11 +410,14 @@ async function loadMarksSheet() {
     currentMarksSheet = res.data;
     renderMarksSheetGrid(currentMarksSheet);
 
-    if (saveBtn) saveBtn.style.display = 'inline-flex';
-    if (resultBtn) resultBtn.style.display = 'inline-flex';
+    const hasStudents = currentMarksSheet.students && currentMarksSheet.students.length > 0;
+    if (saveBtn) saveBtn.style.display = hasStudents ? 'inline-flex' : 'none';
+    if (resultBtn) resultBtn.style.display = hasStudents ? 'inline-flex' : 'none';
   } catch (err) {
     console.error('Error loading marks sheet:', err);
     tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: #dc2626; padding: 2rem;">Error: ${escapeHtml(err.message)}</td></tr>`;
+    if (saveBtn) saveBtn.style.display = 'none';
+    if (resultBtn) resultBtn.style.display = 'none';
   }
 }
 
@@ -419,15 +445,18 @@ function renderMarksSheetGrid(sheetData) {
       </tr>
     `;
   } else {
+    const wMonthly = currentExamData?.weight_monthly !== undefined ? currentExamData.weight_monthly : 30;
+    const wMain = currentExamData?.weight_main !== undefined ? currentExamData.weight_main : 70;
+
     thead.innerHTML = `
       <tr>
         <th style="width: 70px;">Roll</th>
         <th>Student Name</th>
         <th style="width: 110px;">${isFinal ? 'MT 3 (100)' : 'MT 1 (100)'}</th>
         <th style="width: 110px;">${isFinal ? 'MT 4 (100)' : 'MT 2 (100)'}</th>
-        <th style="width: 110px;">MT Avg (30%)</th>
+        <th style="width: 110px;">MT Avg (${wMonthly}%)</th>
         <th style="width: 120px;">${isFinal ? 'Final Exam (100)' : 'Main Exam (100)'}</th>
-        <th style="width: 110px;">Main (70%)</th>
+        <th style="width: 110px;">Main (${wMain}%)</th>
         <th style="width: 130px; font-weight: 800; color: #004ac6;">Final Score (0.5 Rnd)</th>
         <th style="width: 110px;">Grade & GP</th>
         <th style="width: 90px; text-align: center;">Absent?</th>
@@ -559,23 +588,26 @@ function attachMarksCalculationListeners(isHifz) {
         const mt2 = row.querySelector('.mt2-input')?.value;
         const main = row.querySelector('.main-input')?.value;
 
+        const wMonthly = currentExamData?.weight_monthly !== undefined ? currentExamData.weight_monthly : 30;
+        const wMain = currentExamData?.weight_main !== undefined ? currentExamData.weight_main : 70;
+
         let mtCount = 0;
         let mtSum = 0;
         if (mt1 !== '' && !isNaN(parseFloat(mt1))) { mtSum += parseFloat(mt1); mtCount++; }
         if (mt2 !== '' && !isNaN(parseFloat(mt2))) { mtSum += parseFloat(mt2); mtCount++; }
 
         const mtAvg = mtCount > 0 ? (mtSum / mtCount) : 0;
-        const mt30 = (mtAvg * 30) / 100;
-        const main70 = (main !== '' && !isNaN(parseFloat(main))) ? (parseFloat(main) * 70) / 100 : 0;
+        const mtWeighted = (mtAvg * wMonthly) / 100;
+        const mainWeighted = (main !== '' && !isNaN(parseFloat(main))) ? (parseFloat(main) * wMain) / 100 : 0;
 
-        const raw = mt30 + main70;
+        const raw = mtWeighted + mainWeighted;
         const finalScore = Math.min(100, Math.round(raw * 2) / 2);
         const { grade, gpa } = calculateGradeAndGpa(finalScore);
 
-        const mt30Cell = row.querySelector('.cell-mt-30');
-        if (mt30Cell) mt30Cell.textContent = Math.round(mt30 * 10) / 10;
-        const main70Cell = row.querySelector('.cell-main-70');
-        if (main70Cell) main70Cell.textContent = Math.round(main70 * 10) / 10;
+        const mtCell = row.querySelector('.cell-mt-30');
+        if (mtCell) mtCell.textContent = Math.round(mtWeighted * 10) / 10;
+        const mainCell = row.querySelector('.cell-main-70');
+        if (mainCell) mainCell.textContent = Math.round(mainWeighted * 10) / 10;
 
         scoreCell.textContent = finalScore;
         gradeCell.innerHTML = `<span class="rate-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">${grade} (${gpa})</span>`;
@@ -592,10 +624,11 @@ function attachMarksCalculationListeners(isHifz) {
 
 async function handleSaveMarks() {
   const examId = document.getElementById('sheetExamSelect')?.value;
+  const classId = document.getElementById('sheetClassSelect')?.value;
   const subjectId = document.getElementById('sheetSubjectSelect')?.value;
 
-  if (!examId || !subjectId) {
-    notify('Please select an examination and subject', 'error');
+  if (!examId || !classId || !subjectId) {
+    notify('Please select an examination, class, and subject', 'error');
     return;
   }
 
@@ -603,6 +636,10 @@ async function handleSaveMarks() {
   const isFinal = currentExamData?.exam_type === 'final';
 
   const rows = document.querySelectorAll('.marks-row');
+  if (rows.length === 0) {
+    notify('No students found to save marks for', 'error');
+    return;
+  }
   const marksList = [];
 
   rows.forEach(row => {
@@ -615,6 +652,7 @@ async function handleSaveMarks() {
       marksList.push({
         student_id: parseInt(studentId, 10),
         subject_id: parseInt(subjectId, 10),
+        class_id: parseInt(classId, 10),
         ct_marks: ctVal !== '' ? parseFloat(ctVal) : null,
         final_exam: finalVal !== '' ? parseFloat(finalVal) : null,
         is_absent: isAbsent
@@ -627,6 +665,7 @@ async function handleSaveMarks() {
       const item = {
         student_id: parseInt(studentId, 10),
         subject_id: parseInt(subjectId, 10),
+        class_id: parseInt(classId, 10),
         is_absent: isAbsent
       };
 
@@ -642,6 +681,7 @@ async function handleSaveMarks() {
       marksList.push(item);
     }
   });
+
 
   const saveBtn = document.getElementById('saveMarksBtn');
   if (saveBtn) {

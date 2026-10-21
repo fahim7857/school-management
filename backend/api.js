@@ -3890,8 +3890,8 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     const selectedSubjectId = req.query.subject_id ? parseInt(req.query.subject_id, 10) : null;
 
     // Subjects in this class/stream
-    let subjQuery = 'SELECT s.*, c.name as class_name FROM subjects s JOIN classes c ON s.class_id = c.id WHERE s.is_active = 1 AND s.stream = ?';
-    const subParams = [exam.stream];
+    let subjQuery = 'SELECT s.*, c.name as class_name FROM subjects s JOIN classes c ON s.class_id = c.id WHERE s.is_active = 1 AND (s.stream = ? COLLATE NOCASE OR c.stream = ? COLLATE NOCASE)';
+    const subParams = [exam.stream, exam.stream];
     if (selectedClassId) {
       subjQuery += ' AND s.class_id = ?';
       subParams.push(selectedClassId);
@@ -3900,17 +3900,17 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     const subjects = db.prepare(subjQuery).all(...subParams);
 
     // Students in this class/stream
-    let stuQuery = "SELECT st.*, c.name as class_name FROM students st JOIN classes c ON st.class_id = c.id WHERE LOWER(st.status) = 'active' AND st.stream = ?";
-    const stuParams = [exam.stream];
+    let stuQuery = "SELECT st.*, c.name as class_name FROM students st JOIN classes c ON st.class_id = c.id WHERE LOWER(TRIM(st.status)) = 'active' AND (st.stream = ? COLLATE NOCASE OR c.stream = ? COLLATE NOCASE)";
+    const stuParams = [exam.stream, exam.stream];
     if (selectedClassId) {
       stuQuery += ' AND st.class_id = ?';
       stuParams.push(selectedClassId);
     }
     if (exam.academic_year_id) {
-      stuQuery += ' AND st.academic_year_id = ?';
-      stuParams.push(exam.academic_year_id);
+      stuQuery += ' AND (st.academic_year_id = ? OR c.academic_year_id = ?)';
+      stuParams.push(exam.academic_year_id, exam.academic_year_id);
     }
-    stuQuery += ' ORDER BY st.roll_number ASC, st.name ASC';
+    stuQuery += ' ORDER BY CAST(st.roll_number AS INTEGER) ASC, st.roll_number ASC, st.name ASC';
     const students = db.prepare(stuQuery).all(...stuParams);
 
     // Existing Marks
@@ -3994,7 +3994,7 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         );
         insertedOrUpdated.push(existing.id);
       } else {
-        const insClassId = subj.class_id || exam.class_id;
+        const insClassId = (item.class_id ? parseInt(item.class_id, 10) : null) || subj.class_id || exam.class_id;
         const insStream = exam.stream || subj.stream || 'General';
         const ins = db.prepare(`
           INSERT INTO exam_marks (examination_id, student_id, subject_id, class_id, stream, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)

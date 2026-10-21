@@ -465,7 +465,8 @@ export async function initDatabase() {
     "ALTER TABLE teachers ADD COLUMN is_active INTEGER DEFAULT 1;",
     "ALTER TABLE subjects ADD COLUMN is_optional INTEGER DEFAULT 0;",
     "ALTER TABLE students ADD COLUMN branch TEXT DEFAULT '';",
-    "ALTER TABLE teacher_salary_payments ADD COLUMN advance_deducted REAL DEFAULT 0;"
+    "ALTER TABLE teacher_salary_payments ADD COLUMN advance_deducted REAL DEFAULT 0;",
+    "ALTER TABLE teacher_salary_payments ADD COLUMN payment_method TEXT DEFAULT 'Cash';"
   ];
 
   for (const m of migrations) {
@@ -867,4 +868,3 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
   }
   return baseRollNum;
 }
-
