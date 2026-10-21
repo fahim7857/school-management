@@ -821,6 +821,22 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
 
   const effectiveStream = cls.stream || stream || 'General';
   const isHifz = effectiveStream.toLowerCase() === 'hifz';
+  const cName = (cls.name || '').trim().toLowerCase();
+
+  let prefix = null;
+  if (isHifz) {
+    if (cName === 'kg' || cName === 'hifz kg' || cls.class_number === 0) {
+      prefix = 'HK';
+    }
+  } else {
+    if (cName === 'play' || cName === 'general play' || cls.class_number === -2) {
+      prefix = 'P';
+    } else if (cName === 'nursery' || cls.class_number === -1) {
+      prefix = 'N';
+    } else if (cName === 'kg' || cls.class_number === 0) {
+      prefix = 'K';
+    }
+  }
 
   const rows = db.prepare(`
     SELECT roll_number
@@ -831,12 +847,35 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
   let maxSeq = 0;
   for (const r of rows) {
     const rStr = String(r.roll_number || '').trim();
-    if (isHifz) {
-      if (rStr.startsWith('H') || rStr.startsWith('h')) {
-        const numPart = parseInt(rStr.replace(/^[Hh]/, ''), 10);
+    if (!rStr) continue;
+
+    if (prefix) {
+      const match = rStr.match(new RegExp(`^${prefix}(\\d+)$`, 'i'));
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        if (seq > maxSeq) maxSeq = seq;
+      } else {
+        const digits = rStr.replace(/^[A-Za-z]+/, '');
+        const numPart = parseInt(digits, 10);
         if (!isNaN(numPart)) {
-          const seq = numPart % 100;
+          const seq = numPart >= 100 ? (numPart % 100) : numPart;
           if (seq > maxSeq) maxSeq = seq;
+        }
+      }
+    } else {
+      if (isHifz) {
+        if (rStr.startsWith('H') || rStr.startsWith('h')) {
+          const numPart = parseInt(rStr.replace(/^[Hh]/, ''), 10);
+          if (!isNaN(numPart)) {
+            const seq = numPart % 100;
+            if (seq > maxSeq) maxSeq = seq;
+          }
+        } else {
+          const numPart = parseInt(rStr, 10);
+          if (!isNaN(numPart)) {
+            const seq = numPart % 100;
+            if (seq > maxSeq) maxSeq = seq;
+          }
         }
       } else {
         const numPart = parseInt(rStr, 10);
@@ -845,20 +884,18 @@ export function getNextRollNumber(academicYearId, classId, stream = 'General') {
           if (seq > maxSeq) maxSeq = seq;
         }
       }
-    } else {
-      const numPart = parseInt(rStr, 10);
-      if (!isNaN(numPart)) {
-        const seq = numPart % 100;
-        if (seq > maxSeq) maxSeq = seq;
-      }
     }
   }
 
   const nextSeq = maxSeq + 1;
+  if (prefix) {
+    return `${prefix}${nextSeq}`;
+  }
+
   let baseRollNum;
   if (cls.class_number <= 0) {
-    const prefix = cls.class_number === 0 ? 93 : (cls.class_number === -1 ? 92 : 91);
-    baseRollNum = prefix * 100 + nextSeq;
+    const legacyPrefix = cls.class_number === 0 ? 93 : (cls.class_number === -1 ? 92 : 91);
+    baseRollNum = legacyPrefix * 100 + nextSeq;
   } else {
     baseRollNum = cls.class_number * 100 + nextSeq;
   }

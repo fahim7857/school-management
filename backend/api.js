@@ -818,9 +818,14 @@ apiRouter.get('/students', (req, res) => {
     if (search) {
       let searchRoll = null;
       const cleanSearch = search.replace(/^#/, '').trim();
-      const stuMatch = cleanSearch.match(/^stu[-_]?(?:20\d{2})?[-_]?0*(\d+)$/i) || cleanSearch.match(/^stu[-_]?0*(\d+)$/i);
+      const stuMatch = cleanSearch.match(/^stu[-_]?(?:20\d{2})?[-_]?0*([a-zA-Z0-9]+)$/i) || cleanSearch.match(/^stu[-_]?0*([a-zA-Z0-9]+)$/i);
+      let matchedRollStr = null;
       if (stuMatch) {
-        searchRoll = parseInt(stuMatch[1], 10);
+        matchedRollStr = stuMatch[1];
+        const num = parseInt(stuMatch[1], 10);
+        if (!isNaN(num) && /^\d+$/.test(stuMatch[1])) {
+          searchRoll = num;
+        }
       } else {
         const rawDigits = cleanSearch.replace(/[^0-9]/g, '');
         if (rawDigits.length > 0 && rawDigits.length <= 6) {
@@ -837,10 +842,16 @@ apiRouter.get('/students', (req, res) => {
         LOWER(s.mother_name) LIKE ? OR
         ('stu-' || ay.year || '-' || substr('0000' || s.roll_number, -4)) LIKE ? OR
         ('stu-' || substr('0000' || s.roll_number, -4)) LIKE ? OR
-        ('stu-' || s.roll_number) LIKE ?
+        ('stu-' || s.roll_number) LIKE ? OR
+        LOWER(s.roll_number) = LOWER(?)
       `;
       const wild = `%${cleanSearch}%`;
-      params.push(wild, wild, wild, wild, wild, wild, wild, wild, wild);
+      params.push(wild, wild, wild, wild, wild, wild, wild, wild, wild, cleanSearch);
+
+      if (matchedRollStr) {
+        query += ` OR LOWER(s.roll_number) = LOWER(?)`;
+        params.push(matchedRollStr);
+      }
 
       if (searchRoll !== null) {
         query += ` OR s.roll_number = ?`;
@@ -906,11 +917,16 @@ apiRouter.get('/students/lookup', (req, res) => {
     }
 
     let parsedRoll = null;
+    let matchedRollStr = null;
     let cleanStuQuery = query.replace(/^#/, '').trim();
     if (cleanStuQuery) {
-      const stuMatch = cleanStuQuery.match(/^stu[-_]?(?:20\d{2})?[-_]?0*(\d+)$/i) || cleanStuQuery.match(/^stu[-_]?0*(\d+)$/i);
+      const stuMatch = cleanStuQuery.match(/^stu[-_]?(?:20\d{2})?[-_]?0*([a-zA-Z0-9]+)$/i) || cleanStuQuery.match(/^stu[-_]?0*([a-zA-Z0-9]+)$/i);
       if (stuMatch) {
-        parsedRoll = parseInt(stuMatch[1], 10);
+        matchedRollStr = stuMatch[1];
+        const num = parseInt(stuMatch[1], 10);
+        if (!isNaN(num) && /^\d+$/.test(stuMatch[1])) {
+          parsedRoll = num;
+        }
       } else {
         const pureDigits = cleanStuQuery.replace(/[^0-9]/g, '');
         if (pureDigits.length > 0 && pureDigits.length <= 5) {
@@ -925,10 +941,16 @@ apiRouter.get('/students/lookup', (req, res) => {
         CAST(s.roll_number AS TEXT) LIKE ? OR
         ('stu-' || ay.year || '-' || substr('0000' || s.roll_number, -4)) LIKE ? OR
         ('stu-' || substr('0000' || s.roll_number, -4)) LIKE ? OR
-        ('stu-' || s.roll_number) LIKE ?
+        ('stu-' || s.roll_number) LIKE ? OR
+        LOWER(s.roll_number) = LOWER(?)
       `;
       const wild = `%${cleanStuQuery.toLowerCase()}%`;
-      params.push(wild, wild, wild, wild, wild, wild, wild);
+      params.push(wild, wild, wild, wild, wild, wild, wild, cleanStuQuery);
+
+      if (matchedRollStr) {
+        sql += ` OR LOWER(s.roll_number) = LOWER(?)`;
+        params.push(matchedRollStr);
+      }
 
       if (parsedRoll !== null) {
         sql += ` OR s.roll_number = ?`;
@@ -966,8 +988,9 @@ apiRouter.get('/students/lookup', (req, res) => {
       const lowerQ = cleanStuQuery.toLowerCase();
       exactMatch = enriched.find(s =>
         s.system_id.toLowerCase() === lowerQ ||
-        String(s.roll_number) === cleanStuQuery ||
-        (parsedRoll !== null && s.roll_number === parsedRoll && (!classId || s.class_id === classId))
+        String(s.roll_number).toLowerCase() === lowerQ ||
+        (matchedRollStr && String(s.roll_number).toLowerCase() === matchedRollStr.toLowerCase()) ||
+        (parsedRoll !== null && (s.roll_number === parsedRoll || String(s.roll_number) === String(parsedRoll)) && (!classId || s.class_id === classId))
       ) || null;
 
       if (!exactMatch) {
