@@ -79,4 +79,3 @@ WHERE lower(email) = lower('newemail@example.com')
 ON CONFLICT (user_id)
 DO UPDATE SET role = 'super_admin';
 --staff application zero korar sql code
-Shaafa2228

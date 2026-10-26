@@ -1,0 +1,21 @@
+0000000000000000000000000000000000000000 76fdf541a8f17536b3f5a723655b6a9e6a7aa4bf fahim7857 <faizulislamdk@gmail.com> 1790718951 +0600	commit (initial): Initial project upload
+76fdf541a8f17536b3f5a723655b6a9e6a7aa4bf 76fdf541a8f17536b3f5a723655b6a9e6a7aa4bf fahim7857 <faizulislamdk@gmail.com> 1790718964 +0600	Branch: renamed refs/heads/master to refs/heads/main
+76fdf541a8f17536b3f5a723655b6a9e6a7aa4bf 2ea51427c7c7d3a892bb5efe3ec12f9aee23e4bd fahim7857 <faizulislamdk@gmail.com> 1790877149 +0600	commit: Update project
+2ea51427c7c7d3a892bb5efe3ec12f9aee23e4bd 093d35ea4f4c5ba10d8e891287634a29b56ec71c fahim7857 <faizulislamdk@gmail.com> 1790880304 +0600	commit: Update project
+093d35ea4f4c5ba10d8e891287634a29b56ec71c f545f8992c1c6642c0372cef27b5dd5e8fbe89c9 fahim7857 <faizulislamdk@gmail.com> 1791184390 +0600	commit: updated final
+f545f8992c1c6642c0372cef27b5dd5e8fbe89c9 73e5038897f4ed602e103db84e89a4855f8679b0 fahim7857 <faizulislamdk@gmail.com> 1791231796 +0600	commit: staff ui
+73e5038897f4ed602e103db84e89a4855f8679b0 0100ae506e6c79084d7cbc80244db99151b4f14e fahim7857 <faizulislamdk@gmail.com> 1791268072 +0600	commit: fix teacher monthly khata check
+0100ae506e6c79084d7cbc80244db99151b4f14e 8665f00c909f60ced2eb379d0b9ad3ec49bc8087 fahim7857 <faizulislamdk@gmail.com> 1791278225 +0600	commit: teacher advance payment fix
+8665f00c909f60ced2eb379d0b9ad3ec49bc8087 23b8b99a03e4bbc1c09c9b665d516d53c3b7e9a9 fahim7857 <faizulislamdk@gmail.com> 1791280190 +0600	commit: other payment full fixed with reciept
+23b8b99a03e4bbc1c09c9b665d516d53c3b7e9a9 6e378c1db8e47b83adccd898133442ecb8433105 fahim7857 <faizulislamdk@gmail.com> 1791396122 +0600	commit: staff page full fixed
+6e378c1db8e47b83adccd898133442ecb8433105 0ea0ea08cdf9bdcc846d2a600be66961bb896ed8 fahim7857 <faizulislamdk@gmail.com> 1792336333 +0600	commit: school management
+0ea0ea08cdf9bdcc846d2a600be66961bb896ed8 5f2ec82712837c75b3876a671c2fea5b37fb052e fahim7857 <faizulislamdk@gmail.com> 1792340434 +0600	commit: name change
+5f2ec82712837c75b3876a671c2fea5b37fb052e 6ceddecffeb562cbe33bdf315acb83853ba6d0bf fahim7857 <faizulislamdk@gmail.com> 1792394321 +0600	commit: automatic deploy on cpanel
+6ceddecffeb562cbe33bdf315acb83853ba6d0bf a27fe2e25d619235fb0ed9e000603b267800e5b7 fahim7857 <faizulislamdk@gmail.com> 1792420757 +0600	commit: studentslist hifz and general separate
+a27fe2e25d619235fb0ed9e000603b267800e5b7 3c651b30e002ea21992712b760947c0843341a50 fahim7857 <faizulislamdk@gmail.com> 1792508670 +0600	commit: fixed teacher show in frontend
+3c651b30e002ea21992712b760947c0843341a50 a46930eaf8817f70f9e2934403162cdba3a0532d fahim7857 <faizulislamdk@gmail.com> 1792550282 +0600	commit: fixed examination mark
+a46930eaf8817f70f9e2934403162cdba3a0532d 413205a117a2dfd0a38f68636cd348cbe3fe7c6a fahim7857 <faizulislamdk@gmail.com> 1792552787 +0600	commit: roll serial fix for kg,play,nursery
+413205a117a2dfd0a38f68636cd348cbe3fe7c6a 92bb45338ba4dee6b3e38b8cb8f1e3fd3b1f8455 fahim7857 <faizulislamdk@gmail.com> 1792556897 +0600	commit: teacher fixed salary payment
+92bb45338ba4dee6b3e38b8cb8f1e3fd3b1f8455 a5deff2501b9ade2eee289c29575796fd9e9fe0b fahim7857 <faizulislamdk@gmail.com> 1792605058 +0600	commit: signature remove from result card
+a5deff2501b9ade2eee289c29575796fd9e9fe0b 1306490218de82559f9b90eed85dc855616e1f17 fahim7857 <faizulislamdk@gmail.com> 1792610252 +0600	commit: attendance solved
+1306490218de82559f9b90eed85dc855616e1f17 f9ebad89fe4bf5462b9a8d0eab776679c23072bc fahim7857 <faizulislamdk@gmail.com> 1792610960 +0600	commit: result print all together

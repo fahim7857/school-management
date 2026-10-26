@@ -2381,6 +2381,12 @@ if (typeof document !== 'undefined') {
       if (window.authReady) {
         const state = await window.authReady;
         if (state) {
+          if (state.role === 'staff') {
+            document.querySelectorAll('a[href="examinations.html"], a[href="result-cards.html"]').forEach(el => {
+              el.style.display = 'none';
+            });
+          }
+
           if (state.role === 'super_admin') {
             let adminLink = document.getElementById('nav-admin-link');
             if (adminLink) {
