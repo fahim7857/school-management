@@ -443,6 +443,52 @@
             <span class="material-symbols-outlined" style="font-size: 1.1rem;">badge</span>
             Staff Salary & Advance
           </button>
+          <button type="button" class="admin-tab-btn" data-status="teacher_applications" id="teacherAppsTabBtn"
+            style="background: #eef2ff; color: #4338ca; font-weight: 700;">
+            <span class="material-symbols-outlined" style="font-size: 1.1rem;">school</span>
+            Teacher Applications
+            <span class="badge-count" id="count-teacher-pending" style="background: #4338ca; color: white;">0</span>
+          </button>
+        </div>
+
+        <!-- Teacher Applications Section (Hidden by default) -->
+        <div id="teacherApplicationsSection" style="display: none; margin-bottom: 2rem;">
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--outline-variant); margin-bottom: 1.25rem; background: #f8fafc;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="font-size: 1rem; font-weight: 700; color: #0f172a;">Teacher Applications Review</h3>
+                <p style="font-size: 0.8rem; color: #64748b; margin-top: 0.2rem;">Review applicant requested classes, subjects, and Class Teacher assignments before approving.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary btn-sm" id="refreshTeacherAppsBtn">
+                  <span class="material-symbols-outlined" style="font-size: 1.1rem;">sync</span>
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--outline-variant);">
+            <div style="overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #f1f5f9; text-align: left; font-size: 0.78rem; color: #475569; text-transform: uppercase;">
+                    <th style="padding: 0.75rem 1rem;">Teacher Applicant</th>
+                    <th style="padding: 0.75rem 1rem;">Requested Classes & Subjects</th>
+                    <th style="padding: 0.75rem 1rem;">Class Teacher Requests</th>
+                    <th style="padding: 0.75rem 1rem;">Conflicts / Warnings</th>
+                    <th style="padding: 0.75rem 1rem;">Status</th>
+                    <th style="padding: 0.75rem 1rem; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="teacherAppsTableBody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">Loading teacher applications...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
         <!-- Staff Salary & Advance Section (Hidden by default) -->

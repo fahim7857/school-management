@@ -7,16 +7,18 @@ import {
   adminSupabaseRequest,
   authenticateRequest,
   getPublicSupabaseConfig,
+  getTeacherContext,
   publicSupabaseRequest,
   requireDeletePermission,
-  requireSuperAdmin
+  requireSuperAdmin,
+  requireStaffOrAdmin
 } from './auth.js';
 
 export const apiRouter = express.Router();
 
 const MONTHS = getMonthsList();
 
-// Public Supabase bootstrap and staff application endpoints.
+// Public Supabase bootstrap, staff application, and teacher application endpoints.
 // Every existing application API route is protected immediately below these.
 apiRouter.get('/auth/config', (req, res) => {
   const config = getPublicSupabaseConfig();
@@ -28,6 +30,64 @@ apiRouter.get('/auth/config', (req, res) => {
     });
   }
   return res.json({ success: true, data: config });
+});
+
+// Public academic structure for teacher application form
+apiRouter.get('/public/teacher-application-options', (req, res) => {
+  try {
+    const activeYear = getActiveAcademicYear();
+    const classes = db.prepare(`
+      SELECT c.*, t.name as class_teacher_name
+      FROM classes c
+      LEFT JOIN teachers t ON c.class_teacher_id = t.id
+      WHERE c.academic_year_id = ? AND c.is_active = 1
+      ORDER BY c.stream ASC, c.class_number ASC
+    `).all(activeYear.id);
+
+    const classIds = classes.map(c => c.id);
+    let subjects = [];
+    if (classIds.length > 0) {
+      subjects = db.prepare(`
+        SELECT s.*, ta.teacher_id as currently_assigned_teacher_id, t.name as currently_assigned_teacher_name
+        FROM subjects s
+        LEFT JOIN teacher_assignments ta ON s.id = ta.subject_id AND ta.is_active = 1
+        LEFT JOIN teachers t ON ta.teacher_id = t.id
+        WHERE s.class_id IN (${classIds.map(() => '?').join(',')}) AND s.is_active = 1
+        ORDER BY s.class_id ASC, s.name ASC
+      `).all(...classIds);
+    }
+
+    const classesWithSubjects = classes.map(cls => {
+      const classSubjects = subjects.filter(s => s.class_id === cls.id);
+      return {
+        id: cls.id,
+        name: cls.name,
+        stream: cls.stream,
+        class_number: cls.class_number,
+        has_class_teacher: Boolean(cls.class_teacher_id),
+        class_teacher_name: cls.class_teacher_name || null,
+        subjects: classSubjects.map(s => ({
+          id: s.id,
+          name: s.name,
+          code: s.code,
+          full_marks: s.full_marks,
+          is_assigned: Boolean(s.currently_assigned_teacher_id),
+          assigned_teacher_name: s.currently_assigned_teacher_name || null
+        }))
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        academic_year: activeYear,
+        classes: classesWithSubjects
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching teacher application options:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 apiRouter.post('/staff-applications', async (req, res) => {
@@ -87,6 +147,106 @@ apiRouter.post('/staff-applications', async (req, res) => {
   }
 });
 
+apiRouter.post('/teacher-applications', async (req, res) => {
+  const fullName = String(req.body?.full_name || req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const notes = String(req.body?.notes || '').trim() || null;
+  const userId = req.body?.user_id || null;
+  const requestedClasses = req.body?.requested_classes;
+
+  if (!fullName || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Name and a valid email address are required'
+    });
+  }
+
+  if (!Array.isArray(requestedClasses) || requestedClasses.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'At least one class and subject must be selected'
+    });
+  }
+
+  // Validate requested classes and subjects in SQLite
+  const sanitizedRequests = [];
+  for (const rc of requestedClasses) {
+    const cId = parseInt(rc.class_id, 10);
+    if (!cId) continue;
+    const cls = db.prepare('SELECT id, name, stream, class_number FROM classes WHERE id = ?').get(cId);
+    if (!cls) continue;
+
+    const subjectIds = Array.isArray(rc.subject_ids) ? rc.subject_ids.map(Number).filter(Boolean) : [];
+    if (subjectIds.length === 0) continue;
+
+    const validSubjects = [];
+    for (const sId of subjectIds) {
+      const subj = db.prepare('SELECT id, name, code FROM subjects WHERE id = ? AND class_id = ?').get(sId, cId);
+      if (subj) validSubjects.push(subj);
+    }
+    if (validSubjects.length === 0) continue;
+
+    sanitizedRequests.push({
+      class_id: cls.id,
+      class_name: cls.name,
+      stream: cls.stream,
+      subject_ids: validSubjects.map(s => s.id),
+      subject_names: validSubjects.map(s => s.name),
+      request_class_teacher: Boolean(rc.request_class_teacher)
+    });
+  }
+
+  if (sanitizedRequests.length === 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid class or subject selections. Please select valid classes and subjects.'
+    });
+  }
+
+  try {
+    // Idempotency check: don't create multiple pending applications for same email
+    const existing = await adminSupabaseRequest(
+      `/rest/v1/teacher_applications?select=id&email=eq.${encodeURIComponent(email)}&status=eq.pending&limit=1`,
+      { method: 'GET' }
+    );
+    if (Array.isArray(existing) && existing.length > 0) {
+      return res.status(201).json({
+        success: true,
+        message: 'Teacher application submitted for review.'
+      });
+    }
+
+    const payload = {
+      full_name: fullName,
+      email,
+      notes,
+      status: 'pending',
+      requested_classes: sanitizedRequests
+    };
+    if (userId) payload.user_id = userId;
+
+    await adminSupabaseRequest('/rest/v1/teacher_applications', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify(payload)
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Teacher application submitted for review.'
+    });
+  } catch (error) {
+    console.error('Teacher application submission failed:', error);
+    return res.status(error.message.startsWith('Supabase is not configured.') ? 503 : 500).json({
+      success: false,
+      error: 'Unable to submit teacher application',
+      message: error.message.startsWith('Supabase is not configured.')
+        ? 'The application administrator must configure Supabase before applications can be submitted.'
+        : 'Please try again later.'
+    });
+  }
+});
+
 // Backend authentication is the source of truth for every existing SQLite API.
 apiRouter.use(authenticateRequest);
 
@@ -99,7 +259,15 @@ apiRouter.get('/auth/me', (req, res) => {
         email: req.auth.user.email,
         name: req.auth.user.user_metadata?.full_name || req.auth.user.user_metadata?.name || ''
       },
-      role: req.auth.role
+      role: req.auth.role,
+      teacher: req.auth.teacherContext ? {
+        id: req.auth.teacherContext.teacher.id,
+        name: req.auth.teacherContext.teacher.name,
+        stream: req.auth.teacherContext.teacher.stream,
+        assigned_subject_ids: Array.from(req.auth.teacherContext.assignedSubjectIds || []),
+        assigned_class_ids: Array.from(req.auth.teacherContext.assignedClassIds || []),
+        class_teacher_class_ids: Array.from(req.auth.teacherContext.classTeacherClassIds || [])
+      } : null
     }
   });
 });
@@ -260,6 +428,522 @@ apiRouter.post('/admin/staff-applications/:id/reject', requireSuperAdmin, async 
     return res.status(serviceErrorStatus(error)).json({
       success: false,
       error: 'Unable to reject staff application'
+    });
+  }
+});
+
+// ----------------------------------------------------
+// SUPER ADMIN TEACHER APPLICATION & ASSIGNMENT MANAGEMENT
+// ----------------------------------------------------
+async function getTeacherApplication(id) {
+  const rows = await adminSupabaseRequest(
+    `/rest/v1/teacher_applications?select=*&id=eq.${encodeURIComponent(id)}&limit=1`,
+    { method: 'GET' }
+  );
+  return Array.isArray(rows) ? rows[0] : null;
+}
+
+function analyzeTeacherApplicationConflicts(requestedClasses, currentTeacherId = null) {
+  const conflicts = [];
+  if (!Array.isArray(requestedClasses)) return conflicts;
+
+  for (const rc of requestedClasses) {
+    const classId = parseInt(rc.class_id, 10);
+    const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
+    if (!cls) continue;
+
+    // Check Class Teacher conflict
+    if (rc.request_class_teacher) {
+      if (cls.class_teacher_id && (!currentTeacherId || cls.class_teacher_id !== currentTeacherId)) {
+        const ct = db.prepare('SELECT name, phone FROM teachers WHERE id = ?').get(cls.class_teacher_id);
+        conflicts.push({
+          type: 'class_teacher',
+          class_id: cls.id,
+          class_name: cls.name,
+          stream: cls.stream,
+          message: `${cls.stream} ${cls.name} already has an active Class Teacher: ${ct ? ct.name : 'ID ' + cls.class_teacher_id}`
+        });
+      }
+    }
+
+    // Check Subject assignment conflicts
+    const subjectIds = Array.isArray(rc.subject_ids) ? rc.subject_ids.map(Number).filter(Boolean) : [];
+    for (const sId of subjectIds) {
+      const subj = db.prepare('SELECT id, name FROM subjects WHERE id = ?').get(sId);
+      if (!subj) continue;
+
+      const assignRow = db.prepare(`
+        SELECT ta.*, t.name as teacher_name
+        FROM teacher_assignments ta
+        JOIN teachers t ON ta.teacher_id = t.id
+        WHERE ta.subject_id = ? AND ta.is_active = 1
+      `).get(sId);
+
+      if (assignRow && (!currentTeacherId || assignRow.teacher_id !== currentTeacherId)) {
+        conflicts.push({
+          type: 'subject_assignment',
+          class_id: cls.id,
+          class_name: cls.name,
+          stream: cls.stream,
+          subject_id: subj.id,
+          subject_name: subj.name,
+          existing_teacher_id: assignRow.teacher_id,
+          existing_teacher_name: assignRow.teacher_name,
+          message: `Subject "${subj.name}" in ${cls.stream} ${cls.name} is already assigned to "${assignRow.teacher_name}".`
+        });
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+apiRouter.get('/admin/teacher-applications', requireSuperAdmin, async (req, res) => {
+  try {
+    const status = req.query.status || 'all';
+    let url = '/rest/v1/teacher_applications?select=*&order=created_at.desc';
+    if (status !== 'all') {
+      url += `&status=eq.${encodeURIComponent(status)}`;
+    }
+    const rows = await adminSupabaseRequest(url, { method: 'GET' });
+    const list = Array.isArray(rows) ? rows : [];
+
+    const enriched = list.map(app => {
+      let requested = app.requested_classes;
+      if (typeof requested === 'string') {
+        try { requested = JSON.parse(requested); } catch (e) { requested = []; }
+      }
+      const conflicts = app.status === 'pending' ? analyzeTeacherApplicationConflicts(requested) : [];
+      return {
+        ...app,
+        requested_classes: requested || [],
+        conflicts
+      };
+    });
+
+    return res.json({ success: true, data: enriched });
+  } catch (error) {
+    console.error('Teacher applications list failed:', error);
+    return res.status(serviceErrorStatus(error)).json({
+      success: false,
+      error: 'Unable to load teacher applications',
+      message: error.message
+    });
+  }
+});
+
+apiRouter.get('/admin/teacher-assignments/conflicts', requireSuperAdmin, (req, res) => {
+  try {
+    const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+    const subjectId = req.query.subject_id ? parseInt(req.query.subject_id, 10) : null;
+    const teacherId = req.query.teacher_id ? parseInt(req.query.teacher_id, 10) : null;
+
+    let conflicts = [];
+    if (subjectId) {
+      const assignRow = db.prepare(`
+        SELECT ta.*, t.name as teacher_name, s.name as subject_name
+        FROM teacher_assignments ta
+        JOIN teachers t ON ta.teacher_id = t.id
+        JOIN subjects s ON ta.subject_id = s.id
+        WHERE ta.subject_id = ? AND ta.is_active = 1
+      `).get(subjectId);
+      if (assignRow && (!teacherId || assignRow.teacher_id !== teacherId)) {
+        conflicts.push({
+          type: 'subject_assignment',
+          message: `Subject "${assignRow.subject_name}" is currently assigned to "${assignRow.teacher_name}".`
+        });
+      }
+    }
+
+    if (classId) {
+      const cls = db.prepare('SELECT c.*, t.name as class_teacher_name FROM classes c LEFT JOIN teachers t ON c.class_teacher_id = t.id WHERE c.id = ?').get(classId);
+      if (cls && cls.class_teacher_id && (!teacherId || cls.class_teacher_id !== teacherId)) {
+        conflicts.push({
+          type: 'class_teacher',
+          message: `${cls.stream} ${cls.name} already has Class Teacher "${cls.class_teacher_name}".`
+        });
+      }
+    }
+
+    res.json({ success: true, conflicts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+apiRouter.post('/admin/teacher-applications/:id/approve', requireSuperAdmin, async (req, res) => {
+  const applicationId = req.params.id;
+  const { override_conflicts = true, custom_assignments } = req.body || {};
+
+  try {
+    const application = await getTeacherApplication(applicationId);
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Teacher application not found' });
+    }
+
+    let requested = custom_assignments || application.requested_classes;
+    if (typeof requested === 'string') {
+      try { requested = JSON.parse(requested); } catch (e) { requested = []; }
+    }
+    if (!Array.isArray(requested)) requested = [];
+
+    // Check conflicts if override_conflicts is explicitly false
+    if (override_conflicts === false) {
+      const conflicts = analyzeTeacherApplicationConflicts(requested);
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: 'Assignment conflicts detected',
+          conflicts
+        });
+      }
+    }
+
+    // Step A: Inspect Current Provisioning State across both databases
+    // 1. Locate Auth User in Supabase
+    let user = application.user_id ? { id: application.user_id, email: application.email } : null;
+    if (!user) {
+      user = await findAuthUserByEmail(application.email);
+    }
+
+    // 2. Check Supabase user_roles
+    let existingRole = null;
+    if (user?.id) {
+      try {
+        const roles = await adminSupabaseRequest(
+          `/rest/v1/user_roles?select=role&user_id=eq.${encodeURIComponent(user.id)}&limit=1`,
+          { method: 'GET' }
+        );
+        existingRole = Array.isArray(roles) && roles.length > 0 ? roles[0]?.role : null;
+      } catch (roleLookupErr) {
+        existingRole = null;
+      }
+    }
+    const hasValidRole = existingRole === 'teacher' || existingRole === 'super_admin';
+
+    // 3. Check SQLite Teacher profile
+    let teacher = user?.id ? db.prepare('SELECT * FROM teachers WHERE user_id = ?').get(user.id) : null;
+    if (!teacher) {
+      teacher = db.prepare('SELECT * FROM teachers WHERE email = ?').get(application.email);
+    }
+    const isTeacherProfileIntact = Boolean(teacher && teacher.is_active == 1 && String(teacher.status).toLowerCase() === 'active');
+
+    // 4. Check requested subject assignments in SQLite
+    let allRequestedSubjectsPresent = true;
+    if (teacher) {
+      for (const rc of requested) {
+        const sIds = Array.isArray(rc.subject_ids) ? rc.subject_ids.map(Number).filter(Boolean) : [];
+        for (const sId of sIds) {
+          const assign = db.prepare('SELECT id FROM teacher_assignments WHERE teacher_id = ? AND subject_id = ? AND is_active = 1').get(teacher.id, sId);
+          if (!assign) {
+            allRequestedSubjectsPresent = false;
+            break;
+          }
+        }
+        if (!allRequestedSubjectsPresent) break;
+      }
+    } else {
+      allRequestedSubjectsPresent = false;
+    }
+
+    // 5. Check requested Class Teacher assignments in SQLite
+    let allRequestedClassTeachersPresent = true;
+    if (teacher) {
+      for (const rc of requested) {
+        if (rc.request_class_teacher) {
+          const cls = db.prepare('SELECT class_teacher_id FROM classes WHERE id = ?').get(parseInt(rc.class_id, 10));
+          if (!cls || cls.class_teacher_id !== teacher.id) {
+            allRequestedClassTeachersPresent = false;
+            break;
+          }
+        }
+      }
+    } else {
+      allRequestedClassTeachersPresent = false;
+    }
+
+    // 6. Check verified teacher context
+    const tc = user?.id ? getTeacherContext(user.id) : null;
+    const isTeacherContextValid = Boolean(tc);
+
+    // Early-return ONLY if application is marked approved AND all provisioning is present and consistent
+    if (
+      application.status === 'approved' &&
+      user?.id &&
+      hasValidRole &&
+      isTeacherProfileIntact &&
+      allRequestedSubjectsPresent &&
+      allRequestedClassTeachersPresent &&
+      isTeacherContextValid
+    ) {
+      return res.json({
+        success: true,
+        message: 'Application is already approved and all provisioning is fully consistent.',
+        data: {
+          teacher_id: teacher.id,
+          user_id: user.id
+        }
+      });
+    }
+
+    // If provisioning is incomplete, safely resume ONLY the missing steps
+    // ---------------------------------------------------------------
+    // 1. Resume Supabase Auth User (if missing)
+    if (!user?.id) {
+      user = await findAuthUserByEmail(application.email);
+      if (!user) {
+        try {
+          const invitation = await adminSupabaseRequest('/auth/v1/invite', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: application.email,
+              data: { full_name: application.full_name }
+            })
+          });
+          user = invitation?.user || invitation;
+        } catch (inviteErr) {
+          user = await findAuthUserByEmail(application.email);
+        }
+      }
+
+      if (!user?.id) {
+        try {
+          const created = await adminSupabaseRequest('/auth/v1/admin/users', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: application.email,
+              email_confirm: true,
+              user_metadata: { full_name: application.full_name }
+            })
+          });
+          user = created?.user || created;
+        } catch (createErr) {
+          user = await findAuthUserByEmail(application.email);
+        }
+      }
+
+      if (!user?.id) {
+        throw new Error('Supabase did not return an Auth user for the approved application.');
+      }
+    }
+
+    // Confirm email so teacher can sign in directly
+    if (!user.email_confirmed_at && !user.confirmed_at) {
+      try {
+        await adminSupabaseRequest(`/auth/v1/admin/users/${encodeURIComponent(user.id)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ email_confirm: true })
+        });
+      } catch (confirmErr) {
+        console.warn('Could not confirm user email directly:', confirmErr.message);
+      }
+    }
+
+    // 2. Resume SQLite Provisioning (if profile, assignments, or class teacher are missing)
+    // Note: Cross-database transactions across SQLite and Supabase are not natively supported;
+    // local changes are kept strictly atomic via SQLite transaction and validated before granting roles.
+    let teacherId = teacher?.id || null;
+    const needsSqliteProvisioning = !isTeacherProfileIntact || !allRequestedSubjectsPresent || !allRequestedClassTeachersPresent || !isTeacherContextValid;
+
+    if (needsSqliteProvisioning) {
+      db.exec('BEGIN TRANSACTION;');
+      try {
+        const matchingTeachers = db.prepare('SELECT * FROM teachers WHERE user_id = ? OR email = ?').all(user.id, application.email);
+
+        if (matchingTeachers.length > 0) {
+          const primary = matchingTeachers.find(t => t.user_id === user.id) || matchingTeachers[0];
+          teacherId = primary.id;
+
+          db.prepare(`
+            UPDATE teachers
+            SET name = ?, email = ?, user_id = ?, status = 'Active', is_active = 1
+            WHERE id = ?
+          `).run(application.full_name.trim(), application.email.trim(), user.id, teacherId);
+
+          for (const duplicate of matchingTeachers) {
+            if (duplicate.id !== teacherId) {
+              db.prepare("UPDATE teachers SET is_active = 0, status = 'Inactive', user_id = NULL WHERE id = ?").run(duplicate.id);
+            }
+          }
+        } else {
+          const stream = requested[0]?.stream || 'General';
+          const resIns = db.prepare(`
+            INSERT INTO teachers (name, email, user_id, status, is_active, stream)
+            VALUES (?, ?, ?, 'Active', 1, ?)
+          `).run(application.full_name.trim(), application.email.trim(), user.id, stream);
+          teacherId = Number(resIns.lastInsertRowid);
+        }
+
+        // Provision Subject Assignments & Class Teacher roles
+        for (const rc of requested) {
+          const classId = parseInt(rc.class_id, 10);
+          const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
+          if (!cls) continue;
+
+          if (rc.request_class_teacher) {
+            db.prepare('UPDATE classes SET class_teacher_id = ? WHERE id = ?').run(teacherId, classId);
+          }
+
+          const subjectIds = Array.isArray(rc.subject_ids) ? rc.subject_ids.map(Number).filter(Boolean) : [];
+          for (const sId of subjectIds) {
+            const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(sId);
+            if (!subj) continue;
+
+            // Deactivate any other teacher assigned to this subject
+            db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE subject_id = ? AND teacher_id != ?').run(sId, teacherId);
+
+            // Upsert assignment for this teacher
+            const existingAssignments = db.prepare('SELECT id FROM teacher_assignments WHERE teacher_id = ? AND subject_id = ?').all(teacherId, sId);
+            if (existingAssignments.length > 0) {
+              db.prepare('UPDATE teacher_assignments SET is_active = 1, class_id = ?, stream = ? WHERE id = ?')
+                .run(classId, subj.stream || cls.stream, existingAssignments[0].id);
+              for (let i = 1; i < existingAssignments.length; i++) {
+                db.prepare('DELETE FROM teacher_assignments WHERE id = ?').run(existingAssignments[i].id);
+              }
+            } else {
+              db.prepare(`
+                INSERT INTO teacher_assignments (teacher_id, subject_id, class_id, stream, academic_year_id, is_active)
+                VALUES (?, ?, ?, ?, ?, 1)
+              `).run(teacherId, sId, classId, subj.stream || cls.stream, subj.academic_year_id || cls.academic_year_id || getActiveAcademicYearId());
+            }
+          }
+        }
+
+        // Verify valid context before committing
+        const verifiedContext = getTeacherContext(user.id);
+        if (!verifiedContext) {
+          throw new Error('Local teacher provisioning failed: could not establish active assignments or Class Teacher role for teacher.');
+        }
+
+        db.exec('COMMIT;');
+      } catch (sqliteErr) {
+        db.exec('ROLLBACK;');
+        throw sqliteErr;
+      }
+    } else {
+      teacherId = teacher.id;
+    }
+
+    // 3. Resume Supabase user_role assignment (if missing)
+    // Handles failures occurring after SQLite commit but before role assignment
+    if (!hasValidRole) {
+      const existingRoles = await adminSupabaseRequest(
+        `/rest/v1/user_roles?select=role&user_id=eq.${encodeURIComponent(user.id)}&limit=1`,
+        { method: 'GET' }
+      );
+      const roleFound = Array.isArray(existingRoles) && existingRoles.length > 0 ? existingRoles[0]?.role : null;
+      if (roleFound !== 'super_admin') {
+        await adminSupabaseRequest('/rest/v1/user_roles', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify({ user_id: user.id, role: 'teacher' })
+        });
+      }
+    }
+
+    // 4. Resume Application Status finalization (if not approved or user_id unlinked)
+    // Handles failures occurring after SQLite commit or after role creation but before application finalization
+    if (application.status !== 'approved' || application.user_id !== user.id) {
+      await adminSupabaseRequest(
+        `/rest/v1/teacher_applications?id=eq.${encodeURIComponent(applicationId)}`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            status: 'approved',
+            user_id: user.id,
+            reviewed_by: req.auth.user.id,
+            reviewed_at: new Date().toISOString()
+          })
+        }
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: existingRole === 'super_admin'
+        ? 'Teacher application approved; existing Super Admin role was preserved.'
+        : 'Teacher application approved and Teacher access assigned successfully.',
+      data: {
+        teacher_id: teacherId,
+        user_id: user.id
+      }
+    });
+  } catch (error) {
+    console.error('Teacher application approval failed:', error);
+    return res.status(serviceErrorStatus(error)).json({
+      success: false,
+      error: 'Unable to approve teacher application',
+      message: error.message
+    });
+  }
+});
+
+apiRouter.post('/admin/teacher-applications/:id/reject', requireSuperAdmin, async (req, res) => {
+  const applicationId = req.params.id;
+
+  try {
+    const application = await getTeacherApplication(applicationId);
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Teacher application not found' });
+    }
+
+    let userId = application.user_id;
+    if (!userId) {
+      const user = await findAuthUserByEmail(application.email);
+      if (user) userId = user.id;
+    }
+
+    // In Supabase: delete only 'teacher' role, never delete super_admin
+    if (userId) {
+      try {
+        await adminSupabaseRequest(
+          `/rest/v1/user_roles?user_id=eq.${encodeURIComponent(userId)}&role=eq.teacher`,
+          { method: 'DELETE' }
+        );
+      } catch (roleErr) {
+        console.warn('Could not remove teacher role during rejection:', roleErr.message);
+      }
+    }
+
+    // In SQLite: deactivate teacher and assignments atomically
+    const teacher = (userId ? db.prepare('SELECT id FROM teachers WHERE user_id = ?').get(userId) : null)
+      || db.prepare('SELECT id FROM teachers WHERE email = ?').get(application.email);
+
+    if (teacher) {
+      db.exec('BEGIN TRANSACTION;');
+      try {
+        db.prepare("UPDATE teachers SET is_active = 0, status = 'Inactive' WHERE id = ?").run(teacher.id);
+        db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?').run(teacher.id);
+        db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE class_teacher_id = ?').run(teacher.id);
+        db.exec('COMMIT;');
+      } catch (txErr) {
+        db.exec('ROLLBACK;');
+        throw txErr;
+      }
+    }
+
+    // Update application status to rejected in Supabase
+    await adminSupabaseRequest(
+      `/rest/v1/teacher_applications?id=eq.${encodeURIComponent(applicationId)}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          status: 'rejected',
+          reviewed_by: req.auth.user.id,
+          reviewed_at: new Date().toISOString()
+        })
+      }
+    );
+
+    return res.json({ success: true, message: 'Teacher application rejected.' });
+  } catch (error) {
+    console.error('Teacher application rejection failed:', error);
+    return res.status(serviceErrorStatus(error)).json({
+      success: false,
+      error: 'Unable to reject teacher application',
+      message: error.message
     });
   }
 });
@@ -805,6 +1489,15 @@ apiRouter.get('/students', (req, res) => {
       params.push(classFilter);
     }
 
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.allClassIds || tc.allClassIds.length === 0) {
+        return res.json({ success: true, data: [], total: 0, currentMonth });
+      }
+      query += ` AND s.class_id IN (${tc.allClassIds.map(() => '?').join(',')})`;
+      params.push(...tc.allClassIds);
+    }
+
     if (streamFilter && streamFilter !== 'all') {
       query += ' AND LOWER(s.stream) = LOWER(?)';
       params.push(streamFilter);
@@ -864,11 +1557,25 @@ apiRouter.get('/students', (req, res) => {
 
     const rows = db.prepare(query).all(...params);
 
-    // Process payment filter and format response
+    // Process payment filter and format response (omit financial data for teachers)
+    const isTeacher = req.auth?.role === 'teacher';
     const results = rows.map(s => {
       const isPaid = Boolean(s.is_paid_current_month);
       const primaryContact = s.primary_contact || 'primary';
       const effectivePhone = (primaryContact === 'secondary' && s.phone_secondary) ? s.phone_secondary : s.phone;
+      if (isTeacher) {
+        return {
+          id: s.id,
+          name: s.name,
+          roll_number: s.roll_number,
+          display_roll: `#${s.roll_number}`,
+          class_id: s.class_id,
+          class_name: s.class_name,
+          stream: s.stream,
+          primary_phone: effectivePhone,
+          status: s.status
+        };
+      }
       return {
         ...s,
         display_roll: `#${s.roll_number}`,
@@ -876,7 +1583,7 @@ apiRouter.get('/students', (req, res) => {
         primary_phone: effectivePhone
       };
     }).filter(s => {
-      if (paymentFilter === 'all') return true;
+      if (isTeacher || paymentFilter === 'all') return true;
       if (paymentFilter === 'Paid') return s.current_month_status === 'Paid';
       if (paymentFilter === 'Due') return s.current_month_status === 'Due';
     });
@@ -2999,6 +3706,14 @@ apiRouter.get('/teachers', (req, res) => {
         ORDER BY c.stream ASC, c.class_number ASC, s.name ASC
       `).all(t.id);
 
+      // Class Teacher classes
+      const classTeacherClasses = db.prepare(`
+        SELECT id, name, stream, class_number
+        FROM classes
+        WHERE class_teacher_id = ?
+        ORDER BY stream ASC, class_number ASC
+      `).all(t.id);
+
       // Advances
       const advRow = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM teacher_advances WHERE teacher_id = ?').get(t.id);
       const totalAdvance = advRow ? advRow.total : 0;
@@ -3018,6 +3733,8 @@ apiRouter.get('/teachers', (req, res) => {
         primary_phone: t.primary_contact === 'secondary' && t.phone_secondary ? t.phone_secondary : (t.phone || ''),
         assignments,
         assigned_count: assignments.length,
+        class_teacher_classes: classTeacherClasses,
+        is_class_teacher: classTeacherClasses.length > 0,
         total_advance: totalAdvance,
         advance_recovered: totalAdvanceRecovered,
         outstanding_advance: outstandingAdvance,
@@ -3187,12 +3904,22 @@ apiRouter.get('/teachers/:id', (req, res) => {
     // Keep historical payments accessible for audit
     const historicalPayments = db.prepare('SELECT * FROM teacher_payments WHERE teacher_id = ? ORDER BY payment_date DESC, id DESC').all(id);
 
+    // Class Teacher classes
+    const classTeacherClasses = db.prepare(`
+      SELECT id, name, stream, class_number
+      FROM classes
+      WHERE class_teacher_id = ?
+      ORDER BY stream ASC, class_number ASC
+    `).all(id);
+
     res.json({
       success: true,
       data: {
         ...teacher,
         primary_phone: teacher.primary_contact === 'secondary' && teacher.phone_secondary ? teacher.phone_secondary : (teacher.phone || ''),
         assignments,
+        class_teacher_classes: classTeacherClasses,
+        is_class_teacher: classTeacherClasses.length > 0,
         advances,
         salary_payments: salaryPayments,
         historical_payments: historicalPayments,
@@ -3208,8 +3935,8 @@ apiRouter.get('/teachers/:id', (req, res) => {
   }
 });
 
-// Create Teacher (with fixed monthly salary, dual phone, stream, and class-subject assignments)
-apiRouter.post('/teachers', (req, res) => {
+// Create Teacher (with fixed monthly salary, dual phone, stream, class-subject assignments, and class teacher)
+apiRouter.post('/teachers', requireStaffOrAdmin, (req, res) => {
   try {
     const {
       name,
@@ -3219,7 +3946,8 @@ apiRouter.post('/teachers', (req, res) => {
       primary_contact,
       fixed_salary,
       stream,
-      assigned_subject_ids
+      assigned_subject_ids,
+      class_teacher_class_ids
     } = req.body;
 
     if (!name || !name.trim()) {
@@ -3255,6 +3983,26 @@ apiRouter.post('/teachers', (req, res) => {
       }
     }
 
+    // Validate class teacher assignments (at most 1 active class teacher per class)
+    const ctClassIds = Array.isArray(class_teacher_class_ids) ? class_teacher_class_ids.map(Number).filter(Boolean) : [];
+    if (ctClassIds.length > 0) {
+      for (const cId of ctClassIds) {
+        const conflict = db.prepare(`
+          SELECT c.name, t.name as teacher_name
+          FROM classes c
+          JOIN teachers t ON c.class_teacher_id = t.id
+          WHERE c.id = ? AND t.is_active = 1
+        `).get(cId);
+
+        if (conflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Class "${conflict.name}" already has an active Class Teacher: "${conflict.teacher_name}".`
+          });
+        }
+      }
+    }
+
     // Insert teacher
     const stmt = db.prepare(`
       INSERT INTO teachers (name, email, phone, phone_secondary, primary_contact, fixed_salary, stream, status, is_active)
@@ -3274,6 +4022,11 @@ apiRouter.post('/teachers', (req, res) => {
       }
     }
 
+    // Assign class teacher relationships
+    for (const cId of ctClassIds) {
+      db.prepare('UPDATE classes SET class_teacher_id = ? WHERE id = ?').run(newTeacherId, cId);
+    }
+
     const newTeacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(newTeacherId);
     res.json({
       success: true,
@@ -3285,8 +4038,8 @@ apiRouter.post('/teachers', (req, res) => {
   }
 });
 
-// Update Teacher (with assignment uniqueness validation)
-apiRouter.put('/teachers/:id', (req, res) => {
+// Update Teacher (with assignment & class teacher uniqueness validation)
+apiRouter.put('/teachers/:id', requireStaffOrAdmin, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const teacher = db.prepare('SELECT * FROM teachers WHERE id = ?').get(id);
@@ -3303,7 +4056,8 @@ apiRouter.put('/teachers/:id', (req, res) => {
       fixed_salary,
       stream,
       is_active,
-      assigned_subject_ids
+      assigned_subject_ids,
+      class_teacher_class_ids
     } = req.body;
 
     const tName = (name && name.trim()) ? name.trim() : teacher.name;
@@ -3352,6 +4106,40 @@ apiRouter.put('/teachers/:id', (req, res) => {
       }
     }
 
+    // Validate and update class teacher assignments if passed
+    if (class_teacher_class_ids !== undefined) {
+      const ctClassIds = Array.isArray(class_teacher_class_ids) ? class_teacher_class_ids.map(Number).filter(Boolean) : [];
+      for (const cId of ctClassIds) {
+        const conflict = db.prepare(`
+          SELECT c.name, t.name as teacher_name
+          FROM classes c
+          JOIN teachers t ON c.class_teacher_id = t.id
+          WHERE c.id = ? AND t.is_active = 1 AND t.id != ?
+        `).get(cId, id);
+
+        if (conflict) {
+          return res.status(400).json({
+            success: false,
+            error: `Class "${conflict.name}" already has an active Class Teacher: "${conflict.teacher_name}".`
+          });
+        }
+      }
+
+      // Clear existing class teacher relationships for this teacher
+      db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE class_teacher_id = ?').run(id);
+
+      // Assign new relationships
+      for (const cId of ctClassIds) {
+        db.prepare('UPDATE classes SET class_teacher_id = ? WHERE id = ?').run(id, cId);
+      }
+    }
+
+    // If teacher is deactivated, release assignments and class teacher roles
+    if (tIsActive === 0) {
+      db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?').run(id);
+      db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE class_teacher_id = ?').run(id);
+    }
+
     db.prepare(`
       UPDATE teachers
       SET name = ?, email = ?, phone = ?, phone_secondary = ?, primary_contact = ?, fixed_salary = ?, stream = ?, status = ?, is_active = ?
@@ -3374,9 +4162,10 @@ apiRouter.delete('/teachers/:id', requireDeletePermission, (req, res) => {
       return res.status(404).json({ success: false, error: 'Teacher not found' });
     }
 
-    // Soft deactivate teacher and release active assignments
+    // Soft deactivate teacher and release active assignments & class teacher status
     db.prepare("UPDATE teachers SET is_active = 0, status = 'Inactive' WHERE id = ?").run(id);
     db.prepare('UPDATE teacher_assignments SET is_active = 0 WHERE teacher_id = ?').run(id);
+    db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE class_teacher_id = ?').run(id);
 
     res.json({ success: true, message: `Teacher "${teacher.name}" deactivated successfully. Historical records preserved.` });
   } catch (error) {
@@ -3616,9 +4405,11 @@ apiRouter.get('/academic/classes', (req, res) => {
 
     let query = `
       SELECT c.*, 
+             t_ct.name as class_teacher_name,
              (SELECT COUNT(*) FROM subjects s WHERE s.class_id = c.id AND s.is_active = 1) as subject_count,
              (SELECT COUNT(*) FROM students st WHERE st.class_id = c.id AND LOWER(st.status) = 'active') as student_count
       FROM classes c
+      LEFT JOIN teachers t_ct ON c.class_teacher_id = t_ct.id
       WHERE 1=1
     `;
     const params = [];
@@ -3630,10 +4421,26 @@ apiRouter.get('/academic/classes', (req, res) => {
       query += ' AND c.stream = ?';
       params.push(stream);
     }
+
+    // Teacher filtering
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.allClassIds || tc.allClassIds.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+      query += ` AND c.id IN (${tc.allClassIds.map(() => '?').join(',')})`;
+      params.push(...tc.allClassIds);
+    }
+
     query += ' ORDER BY c.stream ASC, c.class_number ASC';
 
     const classes = db.prepare(query).all(...params);
-    res.json({ success: true, data: classes });
+    const enriched = classes.map(c => ({
+      ...c,
+      is_class_teacher: req.auth?.role === 'teacher' ? Boolean(req.teacherContext?.isClassTeacher(c.id)) : false
+    }));
+
+    res.json({ success: true, data: enriched });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -3663,6 +4470,42 @@ apiRouter.get('/academic/subjects', (req, res) => {
       query += ' AND s.stream = ?';
       params.push(stream);
     }
+
+    // Teacher filtering
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc) return res.json({ success: true, data: [] });
+
+      if (classId) {
+        if (!tc.isClassTeacher(classId)) {
+          // Regular teacher in this class: only assigned subjects
+          if (!tc.assignedSubjectIds || tc.assignedSubjectIds.size === 0) {
+            return res.json({ success: true, data: [] });
+          }
+          const subIds = Array.from(tc.assignedSubjectIds);
+          query += ` AND s.id IN (${subIds.map(() => '?').join(',')})`;
+          params.push(...subIds);
+        }
+      } else {
+        // No specific classId requested: show subjects where teacher is class teacher OR assigned subject
+        const ctClassIds = Array.from(tc.classTeacherClassIds || []);
+        const subIds = Array.from(tc.assignedSubjectIds || []);
+        if (ctClassIds.length === 0 && subIds.length === 0) {
+          return res.json({ success: true, data: [] });
+        }
+        const orConditions = [];
+        if (ctClassIds.length > 0) {
+          orConditions.push(`s.class_id IN (${ctClassIds.map(() => '?').join(',')})`);
+          params.push(...ctClassIds);
+        }
+        if (subIds.length > 0) {
+          orConditions.push(`s.id IN (${subIds.map(() => '?').join(',')})`);
+          params.push(...subIds);
+        }
+        query += ` AND (${orConditions.join(' OR ')})`;
+      }
+    }
+
     query += ' ORDER BY s.stream ASC, c.class_number ASC, s.name ASC';
 
     const subjects = db.prepare(query).all(...params);
@@ -3673,7 +4516,7 @@ apiRouter.get('/academic/subjects', (req, res) => {
 });
 
 // Create subject
-apiRouter.post('/academic/subjects', (req, res) => {
+apiRouter.post('/academic/subjects', requireStaffOrAdmin, (req, res) => {
   try {
     const { name, code, class_id, stream, full_marks, is_optional } = req.body;
     if (!name || !name.trim()) {
@@ -3718,7 +4561,7 @@ apiRouter.post('/academic/subjects', (req, res) => {
 });
 
 // Update subject
-apiRouter.put('/academic/subjects/:id', (req, res) => {
+apiRouter.put('/academic/subjects/:id', requireStaffOrAdmin, (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
@@ -3932,6 +4775,17 @@ apiRouter.get('/examinations', (req, res) => {
       query += ' AND e.stream = ?';
       params.push(stream);
     }
+
+    // Teacher filtering
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.allClassIds || tc.allClassIds.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+      query += ` AND (e.class_id IN (${tc.allClassIds.map(() => '?').join(',')}) OR (e.class_id IS NULL AND e.stream = ?))`;
+      params.push(...tc.allClassIds, tc.teacher.stream);
+    }
+
     query += ' ORDER BY e.id DESC';
 
     const exams = db.prepare(query).all(...params);
@@ -3941,7 +4795,7 @@ apiRouter.get('/examinations', (req, res) => {
   }
 });
 
-apiRouter.post('/examinations', (req, res) => {
+apiRouter.post('/examinations', requireStaffOrAdmin, (req, res) => {
   try {
     const {
       academic_year_id,
@@ -3996,12 +4850,44 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     const selectedClassId = req.query.class_id ? parseInt(req.query.class_id, 10) : exam.class_id;
     const selectedSubjectId = req.query.subject_id ? parseInt(req.query.subject_id, 10) : null;
 
+    let isClassTeacher = false;
+    let allowedSubjectIds = null;
+
+    // Check teacher permission if role is teacher
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.profile || !tc.profile.is_active) {
+        return res.status(403).json({ success: false, error: 'Access denied: Teacher profile is inactive or not found.' });
+      }
+      if (!selectedClassId) {
+        return res.status(400).json({ success: false, error: 'class_id is required to view marks sheet.' });
+      }
+      isClassTeacher = tc.isClassTeacher(selectedClassId);
+      const hasSubject = tc.hasSubjectInClass(selectedClassId);
+      if (!isClassTeacher && !hasSubject) {
+        return res.status(403).json({ success: false, error: 'Access denied: You are not assigned to this class.' });
+      }
+      if (!isClassTeacher) {
+        allowedSubjectIds = Array.from(tc.assignedSubjectIds || []);
+        if (selectedSubjectId && !tc.hasSubject(selectedSubjectId)) {
+          return res.status(403).json({ success: false, error: 'Access denied: You are not assigned to this subject.' });
+        }
+      }
+    }
+
     // Subjects in this class/stream
     let subjQuery = 'SELECT s.*, c.name as class_name FROM subjects s JOIN classes c ON s.class_id = c.id WHERE s.is_active = 1 AND (s.stream = ? COLLATE NOCASE OR c.stream = ? COLLATE NOCASE)';
     const subParams = [exam.stream, exam.stream];
     if (selectedClassId) {
       subjQuery += ' AND s.class_id = ?';
       subParams.push(selectedClassId);
+    }
+    if (allowedSubjectIds !== null) {
+      if (allowedSubjectIds.length === 0) {
+        return res.json({ success: true, data: { exam, subjects: [], students: [], marks: [], is_class_teacher: isClassTeacher } });
+      }
+      subjQuery += ` AND s.id IN (${allowedSubjectIds.map(() => '?').join(',')})`;
+      subParams.push(...allowedSubjectIds);
     }
     subjQuery += ' ORDER BY s.name ASC';
     const subjects = db.prepare(subjQuery).all(...subParams);
@@ -4026,6 +4912,9 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     if (selectedSubjectId) {
       marksQuery += ' AND subject_id = ?';
       marksParams.push(selectedSubjectId);
+    } else if (allowedSubjectIds !== null) {
+      marksQuery += ` AND subject_id IN (${allowedSubjectIds.map(() => '?').join(',')})`;
+      marksParams.push(...allowedSubjectIds);
     }
     const marks = db.prepare(marksQuery).all(...marksParams);
 
@@ -4035,7 +4924,8 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
         exam,
         subjects,
         students,
-        marks
+        marks,
+        is_class_teacher: isClassTeacher
       }
     });
   } catch (error) {
@@ -4055,78 +4945,129 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
       return res.status(400).json({ success: false, error: 'marks_list array is required' });
     }
 
-    const insertedOrUpdated = [];
+    const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
+    const isTeacher = req.auth?.role === 'teacher';
 
-    for (const item of marks_list) {
-      const { student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, is_absent, remarks } = item;
-      if (!student_id || !subject_id) continue;
+    if (!isStaffOrAdmin && !isTeacher) {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
 
-      const sId = parseInt(student_id, 10);
-      const subId = parseInt(subject_id, 10);
-
-      // Verify subject belongs to correct stream
-      const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(subId);
-      if (!subj) continue;
-
-      // Calculate final score using the strict rounding rules
-      const finalScore = is_absent ? 0 : calculateSubjectScore(exam.stream, exam.exam_type, {
-        mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam
-      });
-
-      const { grade, gpa } = is_absent ? { grade: 'F', gpa: 0 } : getGradeAndGpa(finalScore);
-
-      // Check if record exists
-      const existing = db.prepare('SELECT id FROM exam_marks WHERE examination_id = ? AND student_id = ? AND subject_id = ?').get(examId, sId, subId);
-
-      if (existing) {
-        db.prepare(`
-          UPDATE exam_marks
-          SET mt1 = ?, mt2 = ?, mt3 = ?, mt4 = ?, ct_marks = ?, main_exam = ?, final_exam = ?,
-              final_score = ?, grade = ?, grade_point = ?, is_absent = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(
-          mt1 !== undefined ? mt1 : null,
-          mt2 !== undefined ? mt2 : null,
-          mt3 !== undefined ? mt3 : null,
-          mt4 !== undefined ? mt4 : null,
-          ct_marks !== undefined ? ct_marks : null,
-          main_exam !== undefined ? main_exam : null,
-          final_exam !== undefined ? final_exam : null,
-          finalScore,
-          grade,
-          gpa,
-          is_absent ? 1 : 0,
-          remarks || '',
-          existing.id
-        );
-        insertedOrUpdated.push(existing.id);
-      } else {
-        const insClassId = (item.class_id ? parseInt(item.class_id, 10) : null) || subj.class_id || exam.class_id;
-        const insStream = exam.stream || subj.stream || 'General';
-        const ins = db.prepare(`
-          INSERT INTO exam_marks (examination_id, student_id, subject_id, class_id, stream, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          examId,
-          sId,
-          subId,
-          insClassId,
-          insStream,
-          mt1 !== undefined ? mt1 : null,
-          mt2 !== undefined ? mt2 : null,
-          mt3 !== undefined ? mt3 : null,
-          mt4 !== undefined ? mt4 : null,
-          ct_marks !== undefined ? ct_marks : null,
-          main_exam !== undefined ? main_exam : null,
-          final_exam !== undefined ? final_exam : null,
-          finalScore,
-          grade,
-          gpa,
-          is_absent ? 1 : 0,
-          remarks || ''
-        );
-        insertedOrUpdated.push(Number(ins.lastInsertRowid));
+    // Teacher authorization checks: PRE-VALIDATE EVERY ROW IN BULK BEFORE ANY WRITING
+    if (isTeacher) {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active) {
+        return res.status(403).json({ success: false, error: 'Access denied: Teacher profile is inactive or not found.' });
       }
+      for (const item of marks_list) {
+        const subId = parseInt(item.subject_id, 10);
+        const stuId = parseInt(item.student_id, 10);
+        if (!subId || !stuId) {
+          return res.status(400).json({ success: false, error: 'student_id and subject_id are required for all entries.' });
+        }
+        const subj = db.prepare('SELECT id, name, class_id FROM subjects WHERE id = ?').get(subId);
+        if (!subj) {
+          return res.status(400).json({ success: false, error: `Invalid subject ID: ${subId}` });
+        }
+        const targetClassId = subj.class_id || item.class_id || exam.class_id;
+        const isCT = tc.isClassTeacher(targetClassId);
+        const hasSub = tc.hasSubject(subId);
+        if (!isCT && !hasSub) {
+          return res.status(403).json({
+            success: false,
+            error: `Access denied: You are not authorized to enter marks for subject "${subj.name}" in class ID ${targetClassId}.`
+          });
+        }
+
+        // Verify student belongs to target class
+        const student = db.prepare('SELECT id, class_id FROM students WHERE id = ?').get(stuId);
+        if (!student) {
+          return res.status(400).json({ success: false, error: `Student ID ${stuId} not found.` });
+        }
+        if (targetClassId && student.class_id !== targetClassId) {
+          return res.status(400).json({
+            success: false,
+            error: `Student ID ${stuId} does not belong to subject's class ID ${targetClassId}.`
+          });
+        }
+      }
+    }
+
+    // Atomic write inside transaction
+    db.exec('BEGIN TRANSACTION;');
+    const insertedOrUpdated = [];
+    try {
+      for (const item of marks_list) {
+        const { student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, is_absent, remarks } = item;
+        if (!student_id || !subject_id) continue;
+
+        const sId = parseInt(student_id, 10);
+        const subId = parseInt(subject_id, 10);
+
+        const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(subId);
+        if (!subj) continue;
+
+        const finalScore = is_absent ? 0 : calculateSubjectScore(exam.stream, exam.exam_type, {
+          mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam
+        });
+
+        const { grade, gpa } = is_absent ? { grade: 'F', gpa: 0 } : getGradeAndGpa(finalScore);
+
+        const existing = db.prepare('SELECT id FROM exam_marks WHERE examination_id = ? AND student_id = ? AND subject_id = ?').get(examId, sId, subId);
+
+        if (existing) {
+          db.prepare(`
+            UPDATE exam_marks
+            SET mt1 = ?, mt2 = ?, mt3 = ?, mt4 = ?, ct_marks = ?, main_exam = ?, final_exam = ?,
+                final_score = ?, grade = ?, grade_point = ?, is_absent = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(
+            mt1 !== undefined ? mt1 : null,
+            mt2 !== undefined ? mt2 : null,
+            mt3 !== undefined ? mt3 : null,
+            mt4 !== undefined ? mt4 : null,
+            ct_marks !== undefined ? ct_marks : null,
+            main_exam !== undefined ? main_exam : null,
+            final_exam !== undefined ? final_exam : null,
+            finalScore,
+            grade,
+            gpa,
+            is_absent ? 1 : 0,
+            remarks || '',
+            existing.id
+          );
+          insertedOrUpdated.push(existing.id);
+        } else {
+          const insClassId = (item.class_id ? parseInt(item.class_id, 10) : null) || subj.class_id || exam.class_id;
+          const insStream = exam.stream || subj.stream || 'General';
+          const ins = db.prepare(`
+            INSERT INTO exam_marks (examination_id, student_id, subject_id, class_id, stream, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, final_score, grade, grade_point, is_absent, remarks)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            examId,
+            sId,
+            subId,
+            insClassId,
+            insStream,
+            mt1 !== undefined ? mt1 : null,
+            mt2 !== undefined ? mt2 : null,
+            mt3 !== undefined ? mt3 : null,
+            mt4 !== undefined ? mt4 : null,
+            ct_marks !== undefined ? ct_marks : null,
+            main_exam !== undefined ? main_exam : null,
+            final_exam !== undefined ? final_exam : null,
+            finalScore,
+            grade,
+            gpa,
+            is_absent ? 1 : 0,
+            remarks || ''
+          );
+          insertedOrUpdated.push(Number(ins.lastInsertRowid));
+        }
+      }
+      db.exec('COMMIT;');
+    } catch (txErr) {
+      db.exec('ROLLBACK;');
+      throw txErr;
     }
 
     res.json({
@@ -4153,17 +5094,45 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
       return res.status(400).json({ success: false, error: 'class_id is required' });
     }
 
+    let isClassTeacher = false;
+    let allowedSubjectIds = null;
+
+    // Enforce verified server-side identity & assignments, NEVER client-supplied roles/IDs
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active) {
+        return res.status(403).json({ success: false, error: 'Access denied: Teacher profile is inactive or not found.' });
+      }
+      isClassTeacher = tc.isClassTeacher(cId);
+      const isAssignedToClass = tc.hasSubjectInClass(cId);
+      if (!isClassTeacher && !isAssignedToClass) {
+        return res.status(403).json({ success: false, error: 'Access denied: You are not assigned to this class.' });
+      }
+      if (!isClassTeacher) {
+        // Regular teachers must remain strictly limited to their assigned subjects!
+        allowedSubjectIds = tc.assignedSubjectIds;
+      }
+    } else if (req.auth?.role === 'super_admin' || req.auth?.role === 'staff') {
+      isClassTeacher = true; // Admin/Staff have full access to view complete class result card
+    } else {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
+
     const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(cId);
 
-    // Get subjects in class
-    const subjects = db.prepare('SELECT * FROM subjects WHERE class_id = ? AND is_active = 1 ORDER BY name ASC').all(cId);
+    // Get subjects in class (filtered for regular teachers to only their assigned subjects)
+    const allSubjects = db.prepare('SELECT * FROM subjects WHERE class_id = ? AND is_active = 1 ORDER BY name ASC').all(cId);
+    const subjects = allowedSubjectIds !== null
+      ? allSubjects.filter(s => allowedSubjectIds.has(s.id))
+      : allSubjects;
+
     const subjectCount = subjects.length;
     const grandTotalMarks = subjectCount * 100;
 
     // Get students in this class and stream
     const students = db.prepare("SELECT * FROM students WHERE class_id = ? AND stream = ? AND LOWER(status) = 'active' ORDER BY roll_number ASC").all(cId, exam.stream);
 
-    // Compute highest mark in class for each subject
+    // Compute highest mark in class for each allowed subject
     const highestMarksMap = {};
     for (const sub of subjects) {
       const highRow = db.prepare('SELECT MAX(final_score) as high FROM exam_marks WHERE examination_id = ? AND subject_id = ?').get(examId, sub.id);
@@ -4219,8 +5188,10 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
       const obtainedGpa = subjectCount > 0 ? (hasFail ? 0 : totalGpa / subjectCount) : 0;
       const overallGrade = getGradeAndGpa(averageMarks);
 
-      // Fetch attendance & metadata
-      const meta = db.prepare('SELECT * FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, st.id);
+      // Fetch attendance & metadata (Class Teacher or Super Admin/Staff only)
+      const meta = isClassTeacher
+        ? db.prepare('SELECT * FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, st.id)
+        : null;
 
       return {
         student_id: st.id,
@@ -4249,17 +5220,19 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
       };
     });
 
-    // Calculate Merit Position / Rank (Ordered by Total Marks DESC, then GPA DESC)
-    studentResults.sort((a, b) => {
-      if (b.total_marks_obtained !== a.total_marks_obtained) {
-        return b.total_marks_obtained - a.total_marks_obtained;
-      }
-      return b.obtained_gpa - a.obtained_gpa;
-    });
+    // Calculate Merit Position / Rank (Only when full class results are compiled by Class Teacher or Admin)
+    if (isClassTeacher) {
+      studentResults.sort((a, b) => {
+        if (b.total_marks_obtained !== a.total_marks_obtained) {
+          return b.total_marks_obtained - a.total_marks_obtained;
+        }
+        return b.obtained_gpa - a.obtained_gpa;
+      });
 
-    studentResults.forEach((st, index) => {
-      st.position = index + 1;
-    });
+      studentResults.forEach((st, index) => {
+        st.position = index + 1;
+      });
+    }
 
     res.json({
       success: true,
@@ -4269,7 +5242,8 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
         stream: exam.stream,
         subject_count: subjectCount,
         grand_total_marks: grandTotalMarks,
-        results: studentResults
+        results: studentResults,
+        is_class_teacher: isClassTeacher
       }
     });
   } catch (error) {
@@ -4285,6 +5259,19 @@ apiRouter.get('/examinations/:id/attendance', (req, res) => {
 
     if (!examId || !classId) {
       return res.status(400).json({ success: false, error: 'Examination ID and class_id are required' });
+    }
+
+    // Authorization: Only the designated Class Teacher for this class, or Super Admin/Staff
+    if (req.auth?.role === 'teacher') {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active || !tc.isClassTeacher(classId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Only the designated Class Teacher for this class or an administrator can view class attendance and remarks.'
+        });
+      }
+    } else if (req.auth?.role !== 'super_admin' && req.auth?.role !== 'staff') {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
     }
 
     const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
@@ -4361,63 +5348,105 @@ apiRouter.post('/examinations/:id/attendance', (req, res) => {
       return res.status(400).json({ success: false, error: 'attendance_list must be a non-empty array' });
     }
 
-    // Validate entries before writing
+    const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
+    const isTeacher = req.auth?.role === 'teacher';
+
+    if (isTeacher) {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active || !tc.isClassTeacher(cId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Only the designated Class Teacher for this class or an administrator can submit class attendance.'
+        });
+      }
+    } else if (!isStaffOrAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
+
+    // STRICT BULK VALIDATION: Validate EVERY row and class before writing to prevent unauthorized partial updates
     for (const item of attendance_list) {
+      const sId = parseInt(item.student_id, 10);
+      if (!sId || isNaN(sId)) {
+        return res.status(400).json({ success: false, error: 'Valid student_id is required for every row.' });
+      }
+
+      // Verify student belongs to this specific class
+      const student = db.prepare('SELECT id, class_id, stream FROM students WHERE id = ?').get(sId);
+      if (!student) {
+        return res.status(400).json({ success: false, error: `Student ID ${sId} not found.` });
+      }
+      if (student.class_id !== cId) {
+        return res.status(400).json({
+          success: false,
+          error: `Student ID ${sId} does not belong to class ID ${cId}. Cross-class bulk updates are prohibited.`
+        });
+      }
+
       const pres = parseInt(item.presence, 10);
       if (isNaN(pres) || pres < 0) {
-        return res.status(400).json({ success: false, error: `Invalid present days for student ID ${item.student_id}. Must be >= 0.` });
+        return res.status(400).json({ success: false, error: `Invalid present days for student ID ${sId}. Must be >= 0.` });
       }
       if (pres > wDays) {
-        return res.status(400).json({ success: false, error: `Present days (${pres}) cannot exceed total working days (${wDays}) for student ID ${item.student_id}.` });
+        return res.status(400).json({ success: false, error: `Present days (${pres}) cannot exceed total working days (${wDays}) for student ID ${sId}.` });
       }
     }
 
     const exam = db.prepare('SELECT stream FROM examinations WHERE id = ?').get(examId);
     const defaultStream = exam ? exam.stream : 'General';
 
-    // Save attendance while preserving all marks, grades, and remarks
-    for (const item of attendance_list) {
-      const sId = parseInt(item.student_id, 10);
-      const pres = parseInt(item.presence, 10);
-      const abs = Math.max(0, wDays - pres);
-      const attPct = wDays > 0 ? (Math.round((pres / wDays) * 1000) / 10) : 0;
+    // ATOMIC WRITE: Write inside transaction
+    db.exec('BEGIN TRANSACTION;');
+    try {
+      for (const item of attendance_list) {
+        const sId = parseInt(item.student_id, 10);
+        const pres = parseInt(item.presence, 10);
+        const abs = Math.max(0, wDays - pres);
+        const attPct = wDays > 0 ? (Math.round((pres / wDays) * 1000) / 10) : 0;
 
-      const existing = db.prepare('SELECT id, class_teacher_remarks, principal_remarks FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
+        const existing = db.prepare('SELECT id, class_teacher_remarks, principal_remarks FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
 
-      // Support optional remarks: preserve existing if omitted (undefined), allow deliberate clearing if empty string
-      const teacherRemarks = (item.class_teacher_remarks !== undefined)
-        ? String(item.class_teacher_remarks || '')
-        : (existing ? (existing.class_teacher_remarks || '') : '');
-      const princRemarks = (item.principal_remarks !== undefined)
-        ? String(item.principal_remarks || '')
-        : (existing ? (existing.principal_remarks || '') : '');
+        // Class teacher remarks: editable by class teacher or admin/staff
+        const teacherRemarks = (item.class_teacher_remarks !== undefined)
+          ? String(item.class_teacher_remarks || '')
+          : (existing ? (existing.class_teacher_remarks || '') : '');
 
-      if (existing) {
-        db.prepare(`
-          UPDATE student_exam_results
-          SET total_working_days = ?,
-              presence = ?,
-              presence_days = ?,
-              absent = ?,
-              absent_days = ?,
-              percentage_of_attendance = ?,
-              class_teacher_remarks = ?,
-              principal_remarks = ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks, existing.id);
-      } else {
-        const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
-        const str = student ? student.stream : defaultStream;
+        // Principal remarks: only editable by Super Admin or Staff! If caller is teacher, preserve existing principal remarks!
+        let princRemarks = existing ? (existing.principal_remarks || '') : '';
+        if (isStaffOrAdmin && item.principal_remarks !== undefined) {
+          princRemarks = String(item.principal_remarks || '');
+        }
 
-        db.prepare(`
-          INSERT INTO student_exam_results (
-            examination_id, student_id, class_id, stream,
-            total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance,
-            manners_discipline, class_teacher_remarks, principal_remarks
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Good', ?, ?)
-        `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks);
+        if (existing) {
+          db.prepare(`
+            UPDATE student_exam_results
+            SET total_working_days = ?,
+                presence = ?,
+                presence_days = ?,
+                absent = ?,
+                absent_days = ?,
+                percentage_of_attendance = ?,
+                class_teacher_remarks = ?,
+                principal_remarks = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks, existing.id);
+        } else {
+          const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
+          const str = student ? student.stream : defaultStream;
+
+          db.prepare(`
+            INSERT INTO student_exam_results (
+              examination_id, student_id, class_id, stream,
+              total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance,
+              manners_discipline, class_teacher_remarks, principal_remarks
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Good', ?, ?)
+          `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, teacherRemarks, princRemarks);
+        }
       }
+      db.exec('COMMIT;');
+    } catch (err) {
+      db.exec('ROLLBACK;');
+      throw err;
     }
 
     res.json({
@@ -4429,7 +5458,7 @@ apiRouter.post('/examinations/:id/attendance', (req, res) => {
   }
 });
 
-// Update student metadata (working days, presence, remarks) - remarks are fully optional
+// Update student metadata (working days, presence, remarks)
 apiRouter.post('/examinations/:id/student-meta', (req, res) => {
   try {
     const examId = parseInt(req.params.id, 10);
@@ -4438,6 +5467,26 @@ apiRouter.post('/examinations/:id/student-meta', (req, res) => {
     if (!student_id) return res.status(400).json({ success: false, error: 'student_id is required' });
 
     const sId = parseInt(student_id, 10);
+    const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
+    if (!student) {
+      return res.status(404).json({ success: false, error: 'Student not found.' });
+    }
+
+    const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
+    const isTeacher = req.auth?.role === 'teacher';
+
+    if (isTeacher) {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active || !tc.isClassTeacher(student.class_id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Only the designated Class Teacher for this student\'s class or an administrator can update remarks and attendance metadata.'
+        });
+      }
+    } else if (!isStaffOrAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
+
     const wDays = parseInt(total_working_days, 10) || 0;
     const pres = parseInt(presence, 10) || 0;
     const abs = (absent !== undefined && absent !== '' && !isNaN(parseInt(absent, 10))) ? parseInt(absent, 10) : Math.max(0, wDays - pres);
@@ -4445,31 +5494,78 @@ apiRouter.post('/examinations/:id/student-meta', (req, res) => {
 
     const existing = db.prepare('SELECT id, class_teacher_remarks, principal_remarks, manners_discipline FROM student_exam_results WHERE examination_id = ? AND student_id = ?').get(examId, sId);
 
-    // Remarks are optional: use passed string or keep existing if omitted
     const teacherRemarks = (class_teacher_remarks !== undefined) ? String(class_teacher_remarks || '') : (existing ? (existing.class_teacher_remarks || '') : '');
-    const princRemarks = (principal_remarks !== undefined) ? String(principal_remarks || '') : (existing ? (existing.principal_remarks || '') : '');
+
+    // Principal remarks: only Super Admin or Staff can edit. Teachers cannot alter principal remarks.
+    let princRemarks = existing ? (existing.principal_remarks || '') : '';
+    if (isStaffOrAdmin && principal_remarks !== undefined) {
+      princRemarks = String(principal_remarks || '');
+    }
+
     const disc = (manners_discipline !== undefined && manners_discipline !== '') ? manners_discipline : (existing ? (existing.manners_discipline || 'Very Good') : 'Very Good');
 
-    if (existing) {
-      db.prepare(`
-        UPDATE student_exam_results
-        SET total_working_days = ?, presence = ?, presence_days = ?, absent = ?, absent_days = ?, percentage_of_attendance = ?, manners_discipline = ?,
-            class_teacher_remarks = ?, principal_remarks = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks, existing.id);
-    } else {
-      const student = db.prepare('SELECT class_id, stream FROM students WHERE id = ?').get(sId);
-      const exam = db.prepare('SELECT class_id, stream FROM examinations WHERE id = ?').get(examId);
-      const cId = student ? student.class_id : (exam ? exam.class_id : 1);
-      const str = student ? student.stream : (exam ? exam.stream : 'General');
+    db.exec('BEGIN TRANSACTION;');
+    try {
+      if (existing) {
+        db.prepare(`
+          UPDATE student_exam_results
+          SET total_working_days = ?, presence = ?, presence_days = ?, absent = ?, absent_days = ?, percentage_of_attendance = ?, manners_discipline = ?,
+              class_teacher_remarks = ?, principal_remarks = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks, existing.id);
+      } else {
+        const exam = db.prepare('SELECT class_id, stream FROM examinations WHERE id = ?').get(examId);
+        const cId = student.class_id || (exam ? exam.class_id : 1);
+        const str = student.stream || (exam ? exam.stream : 'General');
 
-      db.prepare(`
-        INSERT INTO student_exam_results (examination_id, student_id, class_id, stream, total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks);
+        db.prepare(`
+          INSERT INTO student_exam_results (examination_id, student_id, class_id, stream, total_working_days, presence, presence_days, absent, absent_days, percentage_of_attendance, manners_discipline, class_teacher_remarks, principal_remarks)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(examId, sId, cId, str, wDays, pres, pres, abs, abs, attPct, disc, teacherRemarks, princRemarks);
+      }
+      db.exec('COMMIT;');
+    } catch (e) {
+      db.exec('ROLLBACK;');
+      throw e;
     }
 
     res.json({ success: true, message: 'Student examination metadata saved successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Publication & Finalization Endpoint (Class Teacher or Super Admin/Staff only)
+apiRouter.post('/examinations/:id/publish', (req, res) => {
+  try {
+    const examId = parseInt(req.params.id, 10);
+    const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
+    if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
+
+    const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
+    const isTeacher = req.auth?.role === 'teacher';
+
+    if (isTeacher) {
+      const tc = req.teacherContext;
+      const targetClassId = req.body.class_id ? parseInt(req.body.class_id, 10) : exam.class_id;
+      if (!targetClassId || !tc || !tc.teacher || !tc.teacher.is_active || !tc.isClassTeacher(targetClassId)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Only the designated Class Teacher for this class or an administrator may publish examination results.'
+        });
+      }
+    } else if (!isStaffOrAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
+
+    const { is_published = 1, is_finalized = 1 } = req.body;
+    db.prepare('UPDATE examinations SET is_published = ?, is_finalized = ? WHERE id = ?')
+      .run(is_published ? 1 : 0, is_finalized ? 1 : 0, examId);
+
+    res.json({
+      success: true,
+      message: `Examination results ${is_published ? 'published' : 'unpublished'} successfully.`
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

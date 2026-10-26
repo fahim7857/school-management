@@ -44,7 +44,10 @@ async function initSql() {
   }
 }
 
+let inTransaction = false;
+
 function saveDb() {
+  if (inTransaction) return;
   if (sqlDb) {
     const data = sqlDb.export();
     const buffer = Buffer.from(data);
@@ -58,6 +61,18 @@ class SqlJsSyncAdapter {
 
   exec(sql) {
     if (!sqlDb) throw new Error('Database not initialized');
+    const upper = sql.trim().toUpperCase();
+    if (upper.startsWith('BEGIN')) {
+      inTransaction = true;
+      sqlDb.exec(sql);
+      return;
+    }
+    if (upper.startsWith('COMMIT') || upper.startsWith('ROLLBACK')) {
+      inTransaction = false;
+      sqlDb.exec(sql);
+      saveDb();
+      return;
+    }
     sqlDb.exec(sql);
     saveDb();
   }
@@ -319,8 +334,7 @@ export async function initDatabase() {
       FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
       FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
       FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
-      FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
-      UNIQUE(subject_id)
+      FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS teacher_advances (
@@ -473,7 +487,8 @@ export async function initDatabase() {
     "ALTER TABLE teacher_salary_payments ADD COLUMN advance_deducted REAL DEFAULT 0;",
     "ALTER TABLE teacher_salary_payments ADD COLUMN payment_method TEXT DEFAULT 'Cash';",
     "ALTER TABLE teacher_advances ADD COLUMN is_recovered INTEGER DEFAULT 0;",
-    "ALTER TABLE teacher_advances ADD COLUMN payment_method TEXT DEFAULT 'Cash';"
+    "ALTER TABLE teacher_advances ADD COLUMN payment_method TEXT DEFAULT 'Cash';",
+    "ALTER TABLE classes ADD COLUMN class_teacher_id INTEGER;"
   ];
 
   for (const m of migrations) {
@@ -483,6 +498,54 @@ export async function initDatabase() {
       // Column already exists or table not ready
     }
   }
+
+  // Safe migration: ensure teacher_assignments does not have legacy table-level UNIQUE(subject_id)
+  // which prevents preserving historical inactive assignments or reassigning subjects.
+  try {
+    const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'teacher_assignments'").get();
+    if (tableSql && tableSql.sql && /UNIQUE\s*\(\s*subject_id\s*\)/i.test(tableSql.sql)) {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE teacher_assignments_migration_temp (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          teacher_id INTEGER NOT NULL,
+          subject_id INTEGER NOT NULL,
+          class_id INTEGER NOT NULL,
+          stream TEXT NOT NULL DEFAULT 'General',
+          academic_year_id INTEGER NOT NULL,
+          is_active INTEGER DEFAULT 1,
+          assigned_at TEXT DEFAULT (datetime('now', 'localtime')),
+          FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE,
+          FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+          FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+          FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE
+        );
+        INSERT INTO teacher_assignments_migration_temp (id, teacher_id, subject_id, class_id, stream, academic_year_id, is_active, assigned_at)
+        SELECT id, teacher_id, subject_id, class_id, stream, academic_year_id, is_active, assigned_at FROM teacher_assignments;
+        DROP TABLE teacher_assignments;
+        ALTER TABLE teacher_assignments_migration_temp RENAME TO teacher_assignments;
+        PRAGMA foreign_keys = ON;
+      `);
+    }
+  } catch (err) {
+    console.warn('teacher_assignments migration note:', err.message);
+  }
+
+  // Create partial unique index: ensures at most one active teacher per subject assignment
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_teacher_assignments_active_subject
+      ON teacher_assignments (subject_id) WHERE is_active = 1;
+    `);
+  } catch (e) { }
+
+  // Index for Class Teacher lookups
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_classes_class_teacher_id
+      ON classes (class_teacher_id);
+    `);
+  } catch (e) { }
 
   seedDefaultDataIfEmpty();
   seedAcademicDefaults();

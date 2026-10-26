@@ -2387,6 +2387,28 @@ if (typeof document !== 'undefined') {
             });
           }
 
+          if (state.role === 'teacher') {
+            // Teacher navigation: show ONLY Examinations and Result Cards
+            const navLinks = document.querySelectorAll('.sidebar-nav a.nav-link');
+            navLinks.forEach(el => {
+              const href = el.getAttribute('href') || '';
+              if (!href.includes('examinations.html') && !href.includes('result-cards.html')) {
+                el.style.display = 'none';
+              } else {
+                el.style.display = 'flex';
+              }
+            });
+
+            // If teacher is on an unauthorized page, redirect immediately to examinations.html
+            const currentPath = window.location.pathname.toLowerCase();
+            const allowedPages = ['examinations.html', 'result-cards.html', 'login.html', 'apply.html'];
+            const isAllowed = allowedPages.some(page => currentPath.endsWith(page));
+            if (!isAllowed) {
+              window.location.replace('examinations.html');
+              return;
+            }
+          }
+
           if (state.role === 'super_admin') {
             let adminLink = document.getElementById('nav-admin-link');
             if (adminLink) {
@@ -2415,7 +2437,9 @@ if (typeof document !== 'undefined') {
           if (profileEl) {
             const email = state.user?.email || '';
             const fullName = state.user?.user_metadata?.full_name || state.user?.user_metadata?.name || email.split('@')[0] || 'User';
-            const roleLabel = state.role === 'super_admin' ? 'Super Admin' : 'Staff Member';
+            let roleLabel = 'Staff Member';
+            if (state.role === 'super_admin') roleLabel = 'Super Admin';
+            else if (state.role === 'teacher') roleLabel = 'Teacher';
             const initials = fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'US';
 
             const avatarEl = profileEl.querySelector('.user-avatar');

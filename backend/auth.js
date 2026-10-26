@@ -1,13 +1,71 @@
+import { db } from './database.js';
+
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const ROLE_VALUES = new Set(['super_admin', 'staff']);
+const ROLE_VALUES = new Set(['super_admin', 'staff', 'teacher']);
 
 export function getPublicSupabaseConfig() {
   return {
     url: SUPABASE_URL,
     anonKey: SUPABASE_ANON_KEY
+  };
+}
+
+export function getTeacherContext(userId) {
+  if (!userId) return null;
+  const teacher = db.prepare("SELECT * FROM teachers WHERE user_id = ? AND is_active = 1 AND LOWER(status) = 'active'").get(userId);
+  if (!teacher) return null;
+
+  const assignments = db.prepare(`
+    SELECT ta.subject_id, ta.class_id, s.name as subject_name, c.name as class_name, c.stream
+    FROM teacher_assignments ta
+    JOIN subjects s ON ta.subject_id = s.id
+    JOIN classes c ON ta.class_id = c.id
+    WHERE ta.teacher_id = ? AND ta.is_active = 1
+  `).all(teacher.id);
+
+  const classTeacherClasses = db.prepare(`
+    SELECT id, name, stream, class_number
+    FROM classes
+    WHERE class_teacher_id = ? AND is_active = 1
+  `).all(teacher.id);
+
+  const assignedSubjectIds = new Set(assignments.map(a => a.subject_id));
+  const assignedClassIds = new Set(assignments.map(a => a.class_id));
+  const classTeacherClassIds = new Set(classTeacherClasses.map(c => c.id));
+  const allClassIds = new Set([...assignedClassIds, ...classTeacherClassIds]);
+
+  if (allClassIds.size === 0) {
+    return null;
+  }
+
+  return {
+    teacher,
+    profile: teacher,
+    assignments,
+    assignedSubjectIds,
+    assignedClassIds,
+    classTeacherClasses,
+    classTeacherClassIds,
+    allClassIds,
+    isClassTeacher(classId) {
+      return classTeacherClassIds.has(Number(classId));
+    },
+    hasSubject(subjectId) {
+      return assignedSubjectIds.has(Number(subjectId));
+    },
+    hasSubjectInClass(classId) {
+      return assignedClassIds.has(Number(classId));
+    },
+    canEditSubjectMarks(classId, subjectId) {
+      if (classTeacherClassIds.has(Number(classId))) return true;
+      return assignedSubjectIds.has(Number(subjectId));
+    },
+    canViewClass(classId) {
+      return allClassIds.has(Number(classId));
+    }
   };
 }
 
@@ -131,7 +189,20 @@ export async function authenticateRequest(req, res, next) {
       });
     }
 
-    req.auth = { accessToken, user, role };
+    let teacherContext = null;
+    if (role === 'teacher') {
+      teacherContext = getTeacherContext(user.id);
+      if (!teacherContext) {
+        return res.status(403).json({
+          success: false,
+          error: 'Teacher account inactive or unassigned',
+          message: 'Your teacher profile is inactive, awaiting approval, or has no active assignments.'
+        });
+      }
+    }
+
+    req.auth = { accessToken, user, role, teacherContext };
+    req.teacherContext = teacherContext;
     return next();
   } catch (error) {
     if (error.message.startsWith('Supabase is not configured.')) {
@@ -174,6 +245,7 @@ export function requireRole(...allowedRoles) {
 }
 
 export const requireSuperAdmin = requireRole('super_admin');
+export const requireStaffOrAdmin = requireRole('super_admin', 'staff');
 
 export function requireDeletePermission(req, res, next) {
   if (!req.auth) {

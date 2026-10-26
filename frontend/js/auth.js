@@ -49,7 +49,7 @@
         .select('role')
         .eq('user_id', userId)
         .maybeSingle();
-      if (roleRow && (roleRow.role === 'super_admin' || roleRow.role === 'staff')) {
+      if (roleRow && (roleRow.role === 'super_admin' || roleRow.role === 'staff' || roleRow.role === 'teacher')) {
         role = roleRow.role;
       }
     } catch (e) { }
@@ -108,6 +108,42 @@
       await client.auth.signOut();
     },
 
+    async signUpTeacher({ full_name, email, password, phone, requested_classes }) {
+      if (!full_name || !email || !password) throw new Error('Name, email and password are required.');
+      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+      if (!Array.isArray(requested_classes) || requested_classes.length === 0) {
+        throw new Error('Please select at least one class and subject.');
+      }
+      const client = await config;
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        options: { data: { full_name, phone: phone || null } }
+      });
+      if (error) throw new Error(error.message);
+
+      const userId = data?.user?.id || null;
+
+      const res = await fetch('/abms/api/teacher-applications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name,
+          email,
+          phone: phone || null,
+          user_id: userId,
+          requested_classes
+        })
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || json.message || 'Failed to submit teacher application.');
+      }
+
+      await client.auth.signOut();
+    },
+
     async signIn(email, password) {
       const client = await config;
       const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -122,6 +158,14 @@
             .from('staff_applications').select('status').eq('user_id', data.user.id).maybeSingle();
           appStatus = app?.status;
         } catch (e) { }
+
+        if (!appStatus) {
+          try {
+            const { data: tApp } = await client
+              .from('teacher_applications').select('status').eq('user_id', data.user.id).maybeSingle();
+            appStatus = tApp?.status;
+          } catch (e) { }
+        }
 
         await client.auth.signOut();
         window.auth.session = null;

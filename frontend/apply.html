@@ -3,13 +3,51 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Staff application - Coaching Center Management System</title>
+  <title>Application - Coaching Center Management System</title>
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="auth.css">
+  <style>
+    .class-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0.85rem;
+      margin-bottom: 0.75rem;
+      background: #f8fafc;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+    .class-card.selected {
+      border-color: #6366f1;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(99, 102, 241, 0.08);
+    }
+    .subject-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      font-size: 0.78rem;
+      color: #334155;
+      cursor: pointer;
+      user-select: none;
+    }
+    .subject-pill input {
+      margin: 0;
+      cursor: pointer;
+    }
+    .subject-pill:has(input:checked) {
+      border-color: #4f46e5;
+      background: #eef2ff;
+      color: #3730a3;
+      font-weight: 600;
+    }
+  </style>
 </head>
 <body class="auth-page">
   <main class="auth-shell">
-    <section class="auth-card">
+    <section class="auth-card wide">
       <div class="auth-brand">
         <div class="auth-brand-mark"><span class="material-symbols-outlined">school</span></div>
         <div>
@@ -18,28 +56,80 @@
         </div>
       </div>
 
-      <h2>Apply for Staff access</h2>
-      <p class="auth-intro">Submit your details for review. A Super Admin will approve or reject the application. Approved applicants receive a Supabase invitation by email.</p>
+      <div class="auth-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--auth-border); padding-bottom: 0.75rem;">
+        <button type="button" id="tab-staff-btn" class="auth-tab-btn active" style="flex: 1; padding: 0.65rem; border: none; background: #e0e7ff; color: #4338ca; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.9rem;">Staff Application</button>
+        <button type="button" id="tab-teacher-btn" class="auth-tab-btn" style="flex: 1; padding: 0.65rem; border: none; background: transparent; color: #64748b; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.9rem;">Teacher Application</button>
+      </div>
 
-      <form id="application-form" class="auth-form">
-        <label class="auth-label">
-          Full name
-          <input class="auth-input" type="text" name="full_name" autocomplete="name" required>
-        </label>
-        <label class="auth-label">
-          Email address
-          <input class="auth-input" type="email" name="email" autocomplete="email" required>
-        </label>
-        <label class="auth-label">
-          Password
-          <input class="auth-input" type="password" name="password" placeholder="Password (min 8 characters)" minlength="8" required>
-        </label>
-        <label class="auth-label">
-          Notes <span style="font-weight: 500; color: #64748b;">(optional)</span>
-          <textarea class="auth-textarea" name="notes" placeholder="Tell the administrator anything useful about your application."></textarea>
-        </label>
-        <button class="auth-button" type="submit">Submit application</button>
-      </form>
+      <!-- Staff Application Section -->
+      <div id="staff-section">
+        <h2>Apply for Staff access</h2>
+        <p class="auth-intro">Submit your details for review. A Super Admin will approve or reject the application. Approved staff members gain operational access.</p>
+
+        <form id="application-form" class="auth-form">
+          <label class="auth-label">
+            Full name
+            <input class="auth-input" type="text" name="full_name" autocomplete="name" required>
+          </label>
+          <label class="auth-label">
+            Email address
+            <input class="auth-input" type="email" name="email" autocomplete="email" required>
+          </label>
+          <label class="auth-label">
+            Password
+            <input class="auth-input" type="password" name="password" placeholder="Password (min 8 characters)" minlength="8" required>
+          </label>
+          <label class="auth-label">
+            Notes <span style="font-weight: 500; color: #64748b;">(optional)</span>
+            <textarea class="auth-textarea" name="notes" placeholder="Tell the administrator anything useful about your application."></textarea>
+          </label>
+          <button class="auth-button" type="submit">Submit Staff Application</button>
+        </form>
+      </div>
+
+      <!-- Teacher Application Section -->
+      <div id="teacher-section" style="display: none;">
+        <h2>Apply for Teacher role</h2>
+        <p class="auth-intro">Select your classes and subjects. You may also request to be assigned as Class Teacher for one or more classes. Applications are reviewed by the Super Admin.</p>
+
+        <form id="teacher-form" class="auth-form">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+            <label class="auth-label">
+              Full name
+              <input class="auth-input" type="text" name="full_name" autocomplete="name" required>
+            </label>
+            <label class="auth-label">
+              Phone number
+              <input class="auth-input" type="tel" name="phone" placeholder="e.g. 01700000000">
+            </label>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+            <label class="auth-label">
+              Email address
+              <input class="auth-input" type="email" name="email" autocomplete="email" required>
+            </label>
+            <label class="auth-label">
+              Password
+              <input class="auth-input" type="password" name="password" placeholder="Password (min 8 characters)" minlength="8" required>
+            </label>
+          </div>
+
+          <div style="margin-top: 0.5rem;">
+            <label class="auth-label" style="font-size: 0.9rem; margin-bottom: 0.4rem;">
+              Requested Classes & Subjects
+              <span style="font-weight: normal; color: #64748b; font-size: 0.78rem;">(Select at least one class and its subjects)</span>
+            </label>
+
+            <div id="classes-loading" style="padding: 1rem; text-align: center; color: #64748b; font-size: 0.85rem;">
+              Loading available classes and subjects…
+            </div>
+            <div id="classes-container" style="display: none;"></div>
+          </div>
+
+          <button class="auth-button" type="submit" id="teacher-submit-btn" style="margin-top: 0.5rem;">Submit Teacher Application</button>
+        </form>
+      </div>
 
       <p id="application-message" class="auth-message" role="alert"></p>
       <div class="auth-links">
@@ -47,6 +137,7 @@
       </div>
     </section>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/auth.js"></script>
   <script src="apply.js"></script>
 </body>

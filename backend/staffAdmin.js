@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { getTeacherContext } from './auth.js';
 
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
 const configured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -51,9 +52,22 @@ export async function requireApproved(req, res, next) {
       });
     }
 
+    let teacherContext = null;
+    if (roleRow.role === 'teacher') {
+      teacherContext = getTeacherContext(user.id);
+      if (!teacherContext) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden',
+          message: 'Teacher profile is inactive or not found.'
+        });
+      }
+    }
+
     req.user = user;
     req.role = roleRow.role;
-    req.auth = { accessToken: token, user, role: roleRow.role };
+    req.teacherContext = teacherContext;
+    req.auth = { accessToken: token, user, role: roleRow.role, teacherContext };
     next();
   } catch (err) {
     console.error('requireApproved error:', err);
@@ -92,7 +106,15 @@ staffAdminRouter.get('/me', requireApproved, (req, res) => {
         id: req.user.id,
         email: req.user.email,
         name: req.user.user_metadata?.full_name || req.user.user_metadata?.name || ''
-      }
+      },
+      teacher: req.teacherContext ? {
+        id: req.teacherContext.teacher.id,
+        name: req.teacherContext.teacher.name,
+        stream: req.teacherContext.teacher.stream,
+        assigned_subject_ids: Array.from(req.teacherContext.assignedSubjectIds || []),
+        assigned_class_ids: Array.from(req.teacherContext.assignedClassIds || []),
+        class_teacher_class_ids: Array.from(req.teacherContext.classTeacherClassIds || [])
+      } : null
     }
   });
 });

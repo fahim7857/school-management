@@ -25,6 +25,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (state.role === 'super_admin') {
           window.location.replace('admin.html');
           return;
+        } else if (state.role === 'teacher') {
+          window.location.replace('examinations.html');
+          return;
         } else if (state.role === 'staff') {
           window.location.replace('dashboard.html');
           return;
@@ -47,6 +50,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (authResult.role === 'super_admin') {
         window.location.replace('admin.html');
+      } else if (authResult.role === 'teacher') {
+        window.location.replace('examinations.html');
       } else {
         window.location.replace('dashboard.html');
       }
