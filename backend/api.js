@@ -4457,11 +4457,12 @@ apiRouter.get('/academic/classes', (req, res) => {
     // Teacher filtering
     if (req.auth?.role === 'teacher') {
       const tc = req.teacherContext;
-      if (!tc || !tc.allClassIds || tc.allClassIds.length === 0) {
+      if (!tc || !tc.allClassIds || tc.allClassIds.size === 0) {
         return res.json({ success: true, data: [] });
       }
-      query += ` AND c.id IN (${tc.allClassIds.map(() => '?').join(',')})`;
-      params.push(...tc.allClassIds);
+      const classIdArray = Array.from(tc.allClassIds);
+      query += ` AND c.id IN (${classIdArray.map(() => '?').join(',')})`;
+      params.push(...classIdArray);
     }
 
     query += ' ORDER BY c.stream ASC, c.class_number ASC';
@@ -4811,11 +4812,12 @@ apiRouter.get('/examinations', (req, res) => {
     // Teacher filtering
     if (req.auth?.role === 'teacher') {
       const tc = req.teacherContext;
-      if (!tc || !tc.allClassIds || tc.allClassIds.length === 0) {
+      if (!tc || !tc.allClassIds || tc.allClassIds.size === 0) {
         return res.json({ success: true, data: [] });
       }
-      query += ` AND (e.class_id IN (${tc.allClassIds.map(() => '?').join(',')}) OR (e.class_id IS NULL AND e.stream = ?))`;
-      params.push(...tc.allClassIds, tc.teacher.stream);
+      const classIdArray = Array.from(tc.allClassIds);
+      query += ` AND (e.class_id IN (${classIdArray.map(() => '?').join(',')}) OR (e.class_id IS NULL AND e.stream = ?))`;
+      params.push(...classIdArray, tc.teacher.stream);
     }
 
     query += ' ORDER BY e.id DESC';
