@@ -434,6 +434,18 @@ export async function initDatabase() {
       FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
       UNIQUE(examination_id, student_id)
     );
+
+    CREATE TABLE IF NOT EXISTS examination_subject_config (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      examination_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
+      monthly_test_max_marks REAL NOT NULL DEFAULT 100,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (examination_id) REFERENCES examinations(id) ON DELETE CASCADE,
+      FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+      UNIQUE(examination_id, subject_id)
+    );
   `);
 
   try {

@@ -4,6 +4,7 @@ let examinationsList = [];
 let currentExamData = null;
 let currentMarksSheet = null;
 let activeClasses = [];
+let currentMonthlyMaxMarks = 100;
 
 const apiClient = window.api || (typeof api !== 'undefined' ? api : {
   get: (url, p) => {
@@ -119,6 +120,7 @@ function setupEventListeners() {
   document.getElementById('sheetExamSelect')?.addEventListener('change', handleExamSelectChange);
   document.getElementById('sheetClassSelect')?.addEventListener('change', handleClassSelectChange);
   document.getElementById('sheetSubjectSelect')?.addEventListener('change', loadMarksSheet);
+  document.getElementById('sheetMonthlyMaxInput')?.addEventListener('input', handleMonthlyMaxMarksChange);
 
   // Save Marks Button
   document.getElementById('saveMarksBtn')?.addEventListener('click', handleSaveMarks);
@@ -308,6 +310,8 @@ async function handleExamSelectChange() {
   if (!examId) {
     classSel.innerHTML = '<option value="">Select class...</option>';
     currentExamData = null;
+    const maxWrapper = document.getElementById('monthlyMaxMarksWrapper');
+    if (maxWrapper) maxWrapper.style.display = 'block';
     await loadMarksSheet();
     return;
   }
@@ -316,6 +320,11 @@ async function handleExamSelectChange() {
   if (!exam) return;
 
   currentExamData = exam;
+
+  const maxWrapper = document.getElementById('monthlyMaxMarksWrapper');
+  if (maxWrapper) {
+    maxWrapper.style.display = (exam.stream === 'Hifz') ? 'none' : 'block';
+  }
 
   // Filter classes by exam stream (and class_id if exam is class-scoped)
   let filteredClasses = activeClasses.filter(c => c.stream === exam.stream);
@@ -412,6 +421,21 @@ async function loadMarksSheet() {
     if (!res || !res.success) throw new Error(res?.error || 'Failed to load marks sheet');
 
     currentMarksSheet = res.data;
+
+    // Load configured monthly test max marks for selected subject
+    if (res.data.monthly_test_max_marks !== undefined && res.data.monthly_test_max_marks > 0) {
+      currentMonthlyMaxMarks = Number(res.data.monthly_test_max_marks);
+    } else {
+      currentMonthlyMaxMarks = 100;
+    }
+
+    const maxInput = document.getElementById('sheetMonthlyMaxInput');
+    const maxWrapper = document.getElementById('monthlyMaxMarksWrapper');
+    if (maxInput) maxInput.value = currentMonthlyMaxMarks;
+    if (maxWrapper) {
+      maxWrapper.style.display = (res.data.exam?.stream === 'Hifz') ? 'none' : 'block';
+    }
+
     renderMarksSheetGrid(currentMarksSheet);
 
     const hasStudents = currentMarksSheet.students && currentMarksSheet.students.length > 0;
@@ -423,6 +447,98 @@ async function loadMarksSheet() {
     if (saveBtn) saveBtn.style.display = 'none';
     if (resultBtn) resultBtn.style.display = 'none';
   }
+}
+
+function handleMonthlyMaxMarksChange() {
+  const input = document.getElementById('sheetMonthlyMaxInput');
+  if (!input) return;
+  const val = parseFloat(input.value);
+  if (isNaN(val) || val <= 0) return;
+  currentMonthlyMaxMarks = val;
+
+  // Dynamically update MT column headers
+  const isFinal = currentExamData?.exam_type === 'final';
+  const thead = document.getElementById('marksSheetThead');
+  if (thead && currentExamData?.stream !== 'Hifz') {
+    const ths = thead.querySelectorAll('th');
+    if (ths.length >= 4) {
+      ths[2].textContent = isFinal ? `MT 3 (${val})` : `MT 1 (${val})`;
+      ths[3].textContent = isFinal ? `MT 4 (${val})` : `MT 2 (${val})`;
+    }
+  }
+
+  // Dynamically update max attribute on inputs
+  document.querySelectorAll('.mt1-input, .mt2-input').forEach(inp => {
+    inp.setAttribute('max', val);
+  });
+
+  // Re-run calculations on all rows
+  recalculateAllMarksRows();
+}
+
+function recalculateAllMarksRows() {
+  const rows = document.querySelectorAll('.marks-row');
+  const isHifz = currentExamData?.stream === 'Hifz';
+  rows.forEach(row => {
+    const absentCheck = row.querySelector('.absent-check');
+    const isAbsent = absentCheck ? absentCheck.checked : false;
+
+    const scoreCell = row.querySelector('.cell-final-score');
+    const gradeCell = row.querySelector('.cell-grade-gpa');
+    if (!scoreCell || !gradeCell) return;
+
+    if (isAbsent) {
+      scoreCell.textContent = '0';
+      gradeCell.innerHTML = `<span class="rate-badge" style="background:#fee2e2; color:#b91c1c; font-weight:700;">F (0.00)</span>`;
+      return;
+    }
+
+    if (isHifz) {
+      const ct = parseFloat(row.querySelector('.ct-input')?.value) || 0;
+      const fin = parseFloat(row.querySelector('.final-input')?.value) || 0;
+      const raw = ct + fin;
+      const finalScore = Math.min(100, Math.round(raw * 2) / 2);
+      const { grade, gpa } = calculateGradeAndGpa(finalScore);
+
+      scoreCell.textContent = finalScore;
+      gradeCell.innerHTML = `<span class="rate-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">${grade} (${gpa})</span>`;
+    } else {
+      const mt1 = row.querySelector('.mt1-input')?.value;
+      const mt2 = row.querySelector('.mt2-input')?.value;
+      const main = row.querySelector('.main-input')?.value;
+
+      const wMonthly = currentExamData?.weight_monthly !== undefined ? currentExamData.weight_monthly : 30;
+      const wMain = currentExamData?.weight_main !== undefined ? currentExamData.weight_main : 70;
+      const maxMarks = (currentMonthlyMaxMarks > 0) ? currentMonthlyMaxMarks : 100;
+
+      let mtCount = 0;
+      let mtSumPct = 0;
+      if (mt1 !== '' && !isNaN(parseFloat(mt1))) {
+        mtSumPct += (parseFloat(mt1) / maxMarks) * 100;
+        mtCount++;
+      }
+      if (mt2 !== '' && !isNaN(parseFloat(mt2))) {
+        mtSumPct += (parseFloat(mt2) / maxMarks) * 100;
+        mtCount++;
+      }
+
+      const mtAvg = mtCount > 0 ? (mtSumPct / mtCount) : 0;
+      const mtWeighted = (mtAvg * wMonthly) / 100;
+      const mainWeighted = (main !== '' && !isNaN(parseFloat(main))) ? (parseFloat(main) * wMain) / 100 : 0;
+
+      const raw = mtWeighted + mainWeighted;
+      const finalScore = Math.min(100, Math.round(raw * 2) / 2);
+      const { grade, gpa } = calculateGradeAndGpa(finalScore);
+
+      const mtCell = row.querySelector('.cell-mt-30');
+      if (mtCell) mtCell.textContent = Math.round(mtWeighted * 10) / 10;
+      const mainCell = row.querySelector('.cell-main-70');
+      if (mainCell) mainCell.textContent = Math.round(mainWeighted * 10) / 10;
+
+      scoreCell.textContent = finalScore;
+      gradeCell.innerHTML = `<span class="rate-badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">${grade} (${gpa})</span>`;
+    }
+  });
 }
 
 function renderMarksSheetGrid(sheetData) {
@@ -451,13 +567,14 @@ function renderMarksSheetGrid(sheetData) {
   } else {
     const wMonthly = currentExamData?.weight_monthly !== undefined ? currentExamData.weight_monthly : 30;
     const wMain = currentExamData?.weight_main !== undefined ? currentExamData.weight_main : 70;
+    const mtMaxDisplay = currentMonthlyMaxMarks || 100;
 
     thead.innerHTML = `
       <tr>
         <th style="width: 70px;">Roll</th>
         <th>Student Name</th>
-        <th style="width: 110px;">${isFinal ? 'MT 3 (100)' : 'MT 1 (100)'}</th>
-        <th style="width: 110px;">${isFinal ? 'MT 4 (100)' : 'MT 2 (100)'}</th>
+        <th style="width: 110px;">${isFinal ? `MT 3 (${mtMaxDisplay})` : `MT 1 (${mtMaxDisplay})`}</th>
+        <th style="width: 110px;">${isFinal ? `MT 4 (${mtMaxDisplay})` : `MT 2 (${mtMaxDisplay})`}</th>
         <th style="width: 110px;">MT Avg (${wMonthly}%)</th>
         <th style="width: 120px;">${isFinal ? 'Final Exam (100)' : 'Main Exam (100)'}</th>
         <th style="width: 110px;">Main (${wMain}%)</th>
@@ -516,17 +633,18 @@ function renderMarksSheetGrid(sheetData) {
       const mainVal = (isFinal ? existing.final_exam : existing.main_exam) ?? '';
       const totalScore = existing.final_score ?? 0;
       const gradeInfo = calculateGradeAndGpa(totalScore);
+      const mtMax = currentMonthlyMaxMarks || 100;
 
       return `
         <tr data-student-id="${st.id}" class="marks-row">
           <td style="font-weight: 700; color: #004ac6;">#${st.roll_number}</td>
           <td style="font-weight: 600; color: #0f172a;">${escapeHtml(st.name)}</td>
           <td>
-            <input type="number" class="form-control mark-input mt1-input" min="0" max="100" step="any"
+            <input type="number" class="form-control mark-input mt1-input" min="0" max="${mtMax}" step="any"
                    value="${mt1Val}" ${isAbsent ? 'disabled' : ''} style="padding: 0.35rem 0.5rem; font-size: 0.85rem;">
           </td>
           <td>
-            <input type="number" class="form-control mark-input mt2-input" min="0" max="100" step="any"
+            <input type="number" class="form-control mark-input mt2-input" min="0" max="${mtMax}" step="any"
                    value="${mt2Val}" ${isAbsent ? 'disabled' : ''} style="padding: 0.35rem 0.5rem; font-size: 0.85rem;">
           </td>
           <td style="font-weight: 600; color: #475569;" class="cell-mt-30">
@@ -594,13 +712,20 @@ function attachMarksCalculationListeners(isHifz) {
 
         const wMonthly = currentExamData?.weight_monthly !== undefined ? currentExamData.weight_monthly : 30;
         const wMain = currentExamData?.weight_main !== undefined ? currentExamData.weight_main : 70;
+        const maxMarks = (currentMonthlyMaxMarks > 0) ? currentMonthlyMaxMarks : 100;
 
         let mtCount = 0;
-        let mtSum = 0;
-        if (mt1 !== '' && !isNaN(parseFloat(mt1))) { mtSum += parseFloat(mt1); mtCount++; }
-        if (mt2 !== '' && !isNaN(parseFloat(mt2))) { mtSum += parseFloat(mt2); mtCount++; }
+        let mtSumPct = 0;
+        if (mt1 !== '' && !isNaN(parseFloat(mt1))) {
+          mtSumPct += (parseFloat(mt1) / maxMarks) * 100;
+          mtCount++;
+        }
+        if (mt2 !== '' && !isNaN(parseFloat(mt2))) {
+          mtSumPct += (parseFloat(mt2) / maxMarks) * 100;
+          mtCount++;
+        }
 
-        const mtAvg = mtCount > 0 ? (mtSum / mtCount) : 0;
+        const mtAvg = mtCount > 0 ? (mtSumPct / mtCount) : 0;
         const mtWeighted = (mtAvg * wMonthly) / 100;
         const mainWeighted = (main !== '' && !isNaN(parseFloat(main))) ? (parseFloat(main) * wMain) / 100 : 0;
 
@@ -639,6 +764,17 @@ async function handleSaveMarks() {
   const isHifz = currentExamData?.stream === 'Hifz';
   const isFinal = currentExamData?.exam_type === 'final';
 
+  let configuredMtMax = 100;
+  if (!isHifz) {
+    const maxInpVal = document.getElementById('sheetMonthlyMaxInput')?.value;
+    configuredMtMax = parseFloat(maxInpVal);
+    if (isNaN(configuredMtMax) || !isFinite(configuredMtMax) || configuredMtMax <= 0) {
+      notify('Please enter a valid positive Monthly Test maximum marks', 'error');
+      return;
+    }
+    currentMonthlyMaxMarks = configuredMtMax;
+  }
+
   const rows = document.querySelectorAll('.marks-row');
   if (rows.length === 0) {
     notify('No students found to save marks for', 'error');
@@ -646,9 +782,10 @@ async function handleSaveMarks() {
   }
   const marksList = [];
 
-  rows.forEach(row => {
+  for (const row of rows) {
     const studentId = row.getAttribute('data-student-id');
     const isAbsent = row.querySelector('.absent-check').checked;
+    const rollText = row.querySelector('td')?.textContent?.trim() || studentId;
 
     if (isHifz) {
       const ctVal = row.querySelector('.ct-input')?.value;
@@ -665,6 +802,23 @@ async function handleSaveMarks() {
       const mt1 = row.querySelector('.mt1-input')?.value;
       const mt2 = row.querySelector('.mt2-input')?.value;
       const main = row.querySelector('.main-input')?.value;
+
+      if (!isAbsent) {
+        if (mt1 !== '' && !isNaN(parseFloat(mt1))) {
+          const v = parseFloat(mt1);
+          if (v < 0 || v > configuredMtMax) {
+            notify(`MT mark (${v}) for student ${rollText} exceeds configured maximum (${configuredMtMax})`, 'error');
+            return;
+          }
+        }
+        if (mt2 !== '' && !isNaN(parseFloat(mt2))) {
+          const v = parseFloat(mt2);
+          if (v < 0 || v > configuredMtMax) {
+            notify(`MT mark (${v}) for student ${rollText} exceeds configured maximum (${configuredMtMax})`, 'error');
+            return;
+          }
+        }
+      }
 
       const item = {
         student_id: parseInt(studentId, 10),
@@ -684,8 +838,7 @@ async function handleSaveMarks() {
       }
       marksList.push(item);
     }
-  });
-
+  }
 
   const saveBtn = document.getElementById('saveMarksBtn');
   if (saveBtn) {
@@ -694,9 +847,15 @@ async function handleSaveMarks() {
   }
 
   try {
-    const res = await apiClient.post(`/examinations/${examId}/save-marks`, {
+    const payload = {
       marks_list: marksList
-    });
+    };
+    if (!isHifz) {
+      payload.monthly_test_max_marks = configuredMtMax;
+      payload.subject_id = parseInt(subjectId, 10);
+    }
+
+    const res = await apiClient.post(`/examinations/${examId}/save-marks`, payload);
 
     if (res && res.success) {
       notify(res.message || 'Marks saved successfully!', 'success');

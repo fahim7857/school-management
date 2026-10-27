@@ -3660,7 +3660,7 @@ apiRouter.post('/seed', requireSuperAdmin, (req, res) => {
  * General: 30% Monthly Test average + 70% Main Exam, rounded to nearest 0.5.
  * Hifz: Direct sum of CT marks and Final Exam marks (capped at 100).
  */
-function calculateSubjectScore(stream, examType, marks) {
+function calculateSubjectScore(stream, examType, marks, monthlyTestMaxMarks = 100) {
   if (stream === 'Hifz') {
     const ct = (marks.ct_marks !== null && marks.ct_marks !== undefined && marks.ct_marks !== '') ? Number(marks.ct_marks) : 0;
     const final = (marks.final_exam !== null && marks.final_exam !== undefined && marks.final_exam !== '') ? Number(marks.final_exam) : 0;
@@ -3684,14 +3684,24 @@ function calculateSubjectScore(stream, examType, marks) {
     mainExam = (marks.main_exam !== null && marks.main_exam !== undefined && marks.main_exam !== '') ? Number(marks.main_exam) : null;
   }
 
-  let mtCount = 0;
-  let mtSum = 0;
-  if (mt1 !== null && !isNaN(mt1)) { mtSum += mt1; mtCount++; }
-  if (mt2 !== null && !isNaN(mt2)) { mtSum += mt2; mtCount++; }
+  const maxMarks = (typeof monthlyTestMaxMarks === 'number' && !isNaN(monthlyTestMaxMarks) && monthlyTestMaxMarks > 0)
+    ? monthlyTestMaxMarks
+    : (parseFloat(monthlyTestMaxMarks) > 0 ? parseFloat(monthlyTestMaxMarks) : 100);
 
-  const mtAvg = mtCount > 0 ? (mtSum / mtCount) : 0;
+  let mtCount = 0;
+  let mtSumPct = 0;
+  if (mt1 !== null && !isNaN(mt1)) {
+    mtSumPct += (Number(mt1) / maxMarks) * 100;
+    mtCount++;
+  }
+  if (mt2 !== null && !isNaN(mt2)) {
+    mtSumPct += (Number(mt2) / maxMarks) * 100;
+    mtCount++;
+  }
+
+  const mtAvg = mtCount > 0 ? (mtSumPct / mtCount) : 0;
   const mtComponent = (mtAvg * 30) / 100;
-  const mainComponent = (mainExam !== null && !isNaN(mainExam)) ? (mainExam * 70) / 100 : 0;
+  const mainComponent = (mainExam !== null && !isNaN(mainExam)) ? (Number(mainExam) * 70) / 100 : 0;
 
   const rawTotal = mtComponent + mainComponent;
   // Nearest 0.5 rounding: Math.round(score * 2) / 2
@@ -4952,14 +4962,32 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     }
     const marks = db.prepare(marksQuery).all(...marksParams);
 
+    // Examination Subject Configurations (Monthly Test Max Marks)
+    const configs = db.prepare('SELECT subject_id, monthly_test_max_marks FROM examination_subject_config WHERE examination_id = ?').all(examId);
+    const configMap = {};
+    configs.forEach(cfg => {
+      configMap[cfg.subject_id] = cfg.monthly_test_max_marks;
+    });
+
+    const enrichedSubjects = subjects.map(s => ({
+      ...s,
+      monthly_test_max_marks: configMap[s.id] !== undefined ? configMap[s.id] : 100
+    }));
+
+    const configuredMax = selectedSubjectId
+      ? (configMap[selectedSubjectId] !== undefined ? configMap[selectedSubjectId] : 100)
+      : 100;
+
     res.json({
       success: true,
       data: {
         exam,
-        subjects,
+        subjects: enrichedSubjects,
         students,
         marks,
-        is_class_teacher: isClassTeacher
+        is_class_teacher: isClassTeacher,
+        monthly_test_max_marks: configuredMax,
+        subject_configs: configMap
       }
     });
   } catch (error) {
@@ -4974,9 +5002,17 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
     const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
     if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
 
-    const { marks_list } = req.body;
+    const { marks_list, monthly_test_max_marks } = req.body;
     if (!Array.isArray(marks_list) || marks_list.length === 0) {
       return res.status(400).json({ success: false, error: 'marks_list array is required' });
+    }
+
+    let parsedMtMax = null;
+    if (monthly_test_max_marks !== undefined && monthly_test_max_marks !== null && monthly_test_max_marks !== '') {
+      parsedMtMax = Number(monthly_test_max_marks);
+      if (isNaN(parsedMtMax) || !isFinite(parsedMtMax) || parsedMtMax <= 0) {
+        return res.status(400).json({ success: false, error: 'Monthly test maximum marks must be a finite positive number.' });
+      }
     }
 
     const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
@@ -5008,7 +5044,7 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         if (!isCT && !hasSub) {
           return res.status(403).json({
             success: false,
-            error: `Access denied: You are not authorized to enter marks for subject "${subj.name}" in class ID ${targetClassId}.`
+            error: `Access denied: You are not authorized to enter marks or configuration for subject "${subj.name}" in class ID ${targetClassId}.`
           });
         }
 
@@ -5026,10 +5062,107 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
       }
     }
 
+    // Determine configured Monthly Test Max Marks per subject
+    const distinctSubjectIds = [...new Set(marks_list.map(m => parseInt(m.subject_id, 10)).filter(Boolean))];
+    const subConfigMap = {};
+    for (const subId of distinctSubjectIds) {
+      if (parsedMtMax !== null) {
+        subConfigMap[subId] = parsedMtMax;
+      } else {
+        const cfg = db.prepare('SELECT monthly_test_max_marks FROM examination_subject_config WHERE examination_id = ? AND subject_id = ?').get(examId, subId);
+        subConfigMap[subId] = (cfg && cfg.monthly_test_max_marks > 0) ? cfg.monthly_test_max_marks : 100;
+      }
+    }
+
+    // Server-side mark validation against configured maximums
+    for (const item of marks_list) {
+      if (item.is_absent) continue;
+      const subId = parseInt(item.subject_id, 10);
+      const sId = parseInt(item.student_id, 10);
+      const subMax = subConfigMap[subId] || 100;
+
+      if (exam.stream === 'General') {
+        const mtInputs = [
+          { name: 'MT 1', val: item.mt1 },
+          { name: 'MT 2', val: item.mt2 },
+          { name: 'MT 3', val: item.mt3 },
+          { name: 'MT 4', val: item.mt4 }
+        ];
+        for (const input of mtInputs) {
+          if (input.val !== undefined && input.val !== null && input.val !== '') {
+            const v = Number(input.val);
+            if (isNaN(v) || !isFinite(v) || v < 0) {
+              return res.status(400).json({
+                success: false,
+                error: `Invalid mark for ${input.name} (student ID ${sId}): marks cannot be negative or invalid.`
+              });
+            }
+            if (v > subMax) {
+              return res.status(400).json({
+                success: false,
+                error: `${input.name} mark (${v}) exceeds the configured maximum allowed marks (${subMax}) for student ID ${sId}.`
+              });
+            }
+          }
+        }
+
+        const mainInputs = [
+          { name: 'Main Exam', val: item.main_exam },
+          { name: 'Final Exam', val: item.final_exam }
+        ];
+        for (const input of mainInputs) {
+          if (input.val !== undefined && input.val !== null && input.val !== '') {
+            const v = Number(input.val);
+            if (isNaN(v) || !isFinite(v) || v < 0 || v > 100) {
+              return res.status(400).json({
+                success: false,
+                error: `${input.name} mark (${v}) must be between 0 and 100 for student ID ${sId}.`
+              });
+            }
+          }
+        }
+      } else if (exam.stream === 'Hifz') {
+        const hifzInputs = [
+          { name: 'Class Test (CT)', val: item.ct_marks },
+          { name: 'Final Exam', val: item.final_exam }
+        ];
+        for (const input of hifzInputs) {
+          if (input.val !== undefined && input.val !== null && input.val !== '') {
+            const v = Number(input.val);
+            if (isNaN(v) || !isFinite(v) || v < 0 || v > 100) {
+              return res.status(400).json({
+                success: false,
+                error: `${input.name} mark (${v}) must be between 0 and 100 for student ID ${sId}.`
+              });
+            }
+          }
+        }
+      }
+    }
+
     // Atomic write inside transaction
     db.exec('BEGIN TRANSACTION;');
     const insertedOrUpdated = [];
     try {
+      // Upsert examination subject configurations if provided
+      if (parsedMtMax !== null) {
+        for (const subId of distinctSubjectIds) {
+          const existingCfg = db.prepare('SELECT id FROM examination_subject_config WHERE examination_id = ? AND subject_id = ?').get(examId, subId);
+          if (existingCfg) {
+            db.prepare(`
+              UPDATE examination_subject_config
+              SET monthly_test_max_marks = ?, updated_at = datetime('now', 'localtime')
+              WHERE id = ?
+            `).run(parsedMtMax, existingCfg.id);
+          } else {
+            db.prepare(`
+              INSERT INTO examination_subject_config (examination_id, subject_id, monthly_test_max_marks)
+              VALUES (?, ?, ?)
+            `).run(examId, subId, parsedMtMax);
+          }
+        }
+      }
+
       for (const item of marks_list) {
         const { student_id, subject_id, mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam, is_absent, remarks } = item;
         if (!student_id || !subject_id) continue;
@@ -5040,9 +5173,10 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(subId);
         if (!subj) continue;
 
+        const subMax = subConfigMap[subId] || 100;
         const finalScore = is_absent ? 0 : calculateSubjectScore(exam.stream, exam.exam_type, {
           mt1, mt2, mt3, mt4, ct_marks, main_exam, final_exam
-        });
+        }, subMax);
 
         const { grade, gpa } = is_absent ? { grade: 'F', gpa: 0 } : getGradeAndGpa(finalScore);
 
@@ -5173,6 +5307,13 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
       highestMarksMap[sub.id] = highRow && highRow.high !== null ? highRow.high : 0;
     }
 
+    // Load Examination Subject Configurations (Monthly Test Max Marks)
+    const configs = db.prepare('SELECT subject_id, monthly_test_max_marks FROM examination_subject_config WHERE examination_id = ?').all(examId);
+    const subConfigMap = {};
+    configs.forEach(c => {
+      subConfigMap[c.subject_id] = c.monthly_test_max_marks;
+    });
+
     // Process each student
     const studentResults = students.map(st => {
       const stMarks = db.prepare('SELECT * FROM exam_marks WHERE examination_id = ? AND student_id = ?').all(examId, st.id);
@@ -5192,13 +5333,27 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
         totalGpa += gradeInfo.gpa;
         if (gradeInfo.grade === 'F') hasFail = true;
 
+        const subMaxMarks = (subConfigMap[sub.id] !== undefined && subConfigMap[sub.id] > 0) ? subConfigMap[sub.id] : 100;
+
         // Breakdown components
         let termMarks = 0;
         let mtMarks = 0;
         if (exam.stream === 'General') {
           termMarks = (exam.exam_type === 'final' ? (m?.final_exam || 0) : (m?.main_exam || 0)) * 0.70;
-          const mtA = exam.exam_type === 'final' ? ((m?.mt3 || 0) + (m?.mt4 || 0)) / 2 : ((m?.mt1 || 0) + (m?.mt2 || 0)) / 2;
-          mtMarks = mtA * 0.30;
+          let mtCount = 0;
+          let mtSumPct = 0;
+          const mt1 = exam.exam_type === 'final' ? m?.mt3 : m?.mt1;
+          const mt2 = exam.exam_type === 'final' ? m?.mt4 : m?.mt2;
+          if (mt1 !== null && mt1 !== undefined && mt1 !== '' && !isNaN(mt1)) {
+            mtSumPct += (Number(mt1) / subMaxMarks) * 100;
+            mtCount++;
+          }
+          if (mt2 !== null && mt2 !== undefined && mt2 !== '' && !isNaN(mt2)) {
+            mtSumPct += (Number(mt2) / subMaxMarks) * 100;
+            mtCount++;
+          }
+          const mtAvg = mtCount > 0 ? (mtSumPct / mtCount) : 0;
+          mtMarks = (mtAvg * 30) / 100;
         } else {
           termMarks = m?.final_exam || 0;
           mtMarks = m?.ct_marks || 0;
@@ -5208,6 +5363,7 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
           subject_id: sub.id,
           subject_name: sub.name,
           full_marks: sub.full_marks || 100,
+          monthly_test_max_marks: subMaxMarks,
           term_marks: Math.round(termMarks * 10) / 10,
           mt_marks: Math.round(mtMarks * 10) / 10,
           total_marks: finalScore,
