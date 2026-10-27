@@ -315,6 +315,14 @@ apiRouter.post('/admin/staff-applications/:id/approve', requireSuperAdmin, async
   try {
     const application = await getStaffApplication(applicationId);
     if (!application) {
+      const teacherApp = await getTeacherApplication(applicationId);
+      if (teacherApp) {
+        return res.status(400).json({
+          success: false,
+          error: 'This is a Teacher application. Please process it using the Teacher application approval workflow.',
+          is_teacher_application: true
+        });
+      }
       return res.status(404).json({ success: false, error: 'Staff application not found' });
     }
     if (application.status !== 'pending') {
@@ -400,6 +408,14 @@ apiRouter.post('/admin/staff-applications/:id/reject', requireSuperAdmin, async 
   try {
     const application = await getStaffApplication(applicationId);
     if (!application) {
+      const teacherApp = await getTeacherApplication(applicationId);
+      if (teacherApp) {
+        return res.status(400).json({
+          success: false,
+          error: 'This is a Teacher application. Please process it using the Teacher application rejection workflow.',
+          is_teacher_application: true
+        });
+      }
       return res.status(404).json({ success: false, error: 'Staff application not found' });
     }
     if (application.status !== 'pending') {
@@ -578,6 +594,14 @@ apiRouter.post('/admin/teacher-applications/:id/approve', requireSuperAdmin, asy
   try {
     const application = await getTeacherApplication(applicationId);
     if (!application) {
+      const staffApp = await getStaffApplication(applicationId);
+      if (staffApp) {
+        return res.status(400).json({
+          success: false,
+          error: 'This is a Staff application. Please process it using the Staff application approval workflow.',
+          is_staff_application: true
+        });
+      }
       return res.status(404).json({ success: false, error: 'Teacher application not found' });
     }
 
@@ -885,6 +909,14 @@ apiRouter.post('/admin/teacher-applications/:id/reject', requireSuperAdmin, asyn
   try {
     const application = await getTeacherApplication(applicationId);
     if (!application) {
+      const staffApp = await getStaffApplication(applicationId);
+      if (staffApp) {
+        return res.status(400).json({
+          success: false,
+          error: 'This is a Staff application. Please process it using the Staff application rejection workflow.',
+          is_staff_application: true
+        });
+      }
       return res.status(404).json({ success: false, error: 'Teacher application not found' });
     }
 

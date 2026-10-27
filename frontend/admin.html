@@ -1002,6 +1002,7 @@
           allApplications = Array.isArray(res.data) ? res.data : [];
           updateKpis();
           renderApplicationsTable();
+          await updateTeacherPendingBadge();
         } catch (err) {
           console.error('Fetch applications error:', err);
           if (err.status === 401) {
@@ -1032,22 +1033,36 @@
           tab.classList.add('active');
           currentFilterStatus = tab.dataset.status;
 
+          const teacherSection = document.getElementById('teacherApplicationsSection');
           const staffSection = document.getElementById('staffSalarySection');
           const tableCard = document.querySelector('.card:has(#applications-table-body)');
           const statusTabsContainer = document.getElementById('statusTabs');
+          const info = document.getElementById('tableStatusInfo');
 
-          if (currentFilterStatus === 'staff_salary') {
+          if (currentFilterStatus === 'teacher_applications') {
+            if (teacherSection) teacherSection.style.display = 'block';
+            if (staffSection) staffSection.style.display = 'none';
+            if (tableCard) tableCard.style.display = 'none';
+            if (info) info.style.display = 'none';
+            loadTeacherApplications();
+          } else if (currentFilterStatus === 'staff_salary') {
+            if (teacherSection) teacherSection.style.display = 'none';
             if (staffSection) staffSection.style.display = 'block';
             if (tableCard) tableCard.style.display = 'none';
-            if (statusTabsContainer) {
-              // Hide info text if any
-              const info = document.getElementById('tableStatusInfo');
-              if (info) info.style.display = 'none';
-            }
+            if (info) info.style.display = 'none';
             loadStaffList();
           } else {
+            if (teacherSection) teacherSection.style.display = 'none';
             if (staffSection) staffSection.style.display = 'none';
             if (tableCard) tableCard.style.display = 'block';
+            if (info) {
+              info.style.display = 'block';
+              if (currentFilterStatus === 'all') {
+                info.textContent = 'Showing all applications';
+              } else {
+                info.textContent = `Showing ${currentFilterStatus} applications`;
+              }
+            }
             renderApplicationsTable();
           }
         });
@@ -1284,20 +1299,254 @@
 
       window.fetchAndRenderStaffAdvanceStatement = fetchAndRenderStaffAdvanceStatement;
 
+      // Teacher Applications Management
+      let allTeacherApplications = [];
+
+      async function updateTeacherPendingBadge() {
+        try {
+          const res = await api.get('/admin/teacher-applications?status=all');
+          const list = Array.isArray(res.data) ? res.data : [];
+          const pendingCount = list.filter(a => (a.status || 'pending') === 'pending').length;
+          const badge = document.getElementById('count-teacher-pending');
+          if (badge) badge.textContent = pendingCount;
+        } catch (e) {
+          console.warn('Could not load teacher pending count:', e);
+        }
+      }
+
+      async function loadTeacherApplications() {
+        const tbody = document.getElementById('teacherAppsTableBody');
+        if (!tbody) return;
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align: center; padding: 2rem; color: #64748b;">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem;">
+                <span class="material-symbols-outlined" style="font-size: 2rem; animation: spin 1s linear infinite;">sync</span>
+                <span>Loading teacher applications…</span>
+              </div>
+            </td>
+          </tr>
+        `;
+
+        try {
+          const res = await api.get('/admin/teacher-applications?status=all');
+          allTeacherApplications = Array.isArray(res.data) ? res.data : [];
+          const pendingCount = allTeacherApplications.filter(a => (a.status || 'pending') === 'pending').length;
+          const badge = document.getElementById('count-teacher-pending');
+          if (badge) badge.textContent = pendingCount;
+          renderTeacherApplicationsTable();
+        } catch (err) {
+          console.error('Failed to load teacher applications:', err);
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 2rem; color: #dc2626;">
+                Failed to load teacher applications: ${escapeHtml(err.message || 'Server error')}
+              </td>
+            </tr>
+          `;
+          if (typeof showToast === 'function') {
+            showToast(err.message || 'Failed to load teacher applications', 'error');
+          }
+        }
+      }
+
+      function renderTeacherApplicationsTable() {
+        const tbody = document.getElementById('teacherAppsTableBody');
+        if (!tbody) return;
+        const query = (searchInput.value || '').trim().toLowerCase();
+
+        const filtered = allTeacherApplications.filter(app => {
+          if (!query) return true;
+          const name = (app.full_name || '').toLowerCase();
+          const email = (app.email || '').toLowerCase();
+          const phone = (app.phone || '').toLowerCase();
+          const notes = (app.notes || '').toLowerCase();
+          return name.includes(query) || email.includes(query) || phone.includes(query) || notes.includes(query);
+        });
+
+        if (filtered.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 2.5rem; color: #64748b;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 0.4rem;">
+                  <span class="material-symbols-outlined" style="font-size: 2.2rem; color: #94a3b8;">school</span>
+                  <strong style="color: #334155;">No teacher applications found</strong>
+                  <span style="font-size: 0.8rem;">Applications submitted by teacher candidates will appear here.</span>
+                </div>
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = filtered.map(app => {
+          const status = app.status || 'pending';
+          const id = escapeHtml(app.id);
+          const fullName = escapeHtml(app.full_name || 'Anonymous');
+          const email = escapeHtml(app.email || '—');
+          const phone = escapeHtml(app.phone || '—');
+          const notes = app.notes ? `<div class="applicant-notes" style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;"><span class="material-symbols-outlined" style="font-size:0.85rem; vertical-align:middle;">note</span> ${escapeHtml(app.notes)}</div>` : '';
+
+          const requestedClassesHtml = (app.requested_classes || []).map(rc => {
+            const subjects = (rc.subject_names || []).join(', ') || 'None';
+            return `<div style="margin-bottom: 0.25rem; font-size: 0.8rem;">
+              <strong style="color: #1e293b;">${escapeHtml(rc.stream ? `${rc.stream} ${rc.class_name}` : rc.class_name)}:</strong>
+              <span style="color: #475569;">${escapeHtml(subjects)}</span>
+            </div>`;
+          }).join('') || '<span style="color: #94a3b8; font-size: 0.8rem;">None</span>';
+
+          const ctRequests = (app.requested_classes || []).filter(rc => rc.request_class_teacher);
+          const ctRequestsHtml = ctRequests.length > 0
+            ? ctRequests.map(rc => `<span class="badge" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; font-size: 0.73rem; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-block; margin-bottom: 0.15rem; font-weight: 600;">${escapeHtml(rc.stream ? `${rc.stream} ${rc.class_name}` : rc.class_name)}</span>`).join(' ')
+            : '<span style="color: #94a3b8; font-size: 0.8rem;">None</span>';
+
+          const conflictsHtml = (app.conflicts && app.conflicts.length > 0)
+            ? app.conflicts.map(c => `<div style="color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.73rem; margin-bottom: 0.2rem; line-height: 1.3;">
+                <span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">warning</span>
+                ${escapeHtml(c.message)}
+              </div>`).join('')
+            : '<span style="color: #16a34a; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 2px;"><span class="material-symbols-outlined" style="font-size: 0.95rem;">check_circle</span> No conflicts</span>';
+
+          let actions = '';
+          if (status === 'pending') {
+            actions = `
+              <div class="action-btn-group" style="justify-content: flex-end; display: flex; gap: 0.4rem;">
+                <button class="btn-approve teacher-approve-btn" data-action="approve" data-id="${id}" data-name="${fullName}" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                  <span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">check</span>
+                  Approve
+                </button>
+                <button class="btn-reject teacher-reject-btn" data-action="reject" data-id="${id}" data-name="${fullName}" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                  <span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">close</span>
+                  Reject
+                </button>
+              </div>
+            `;
+          } else if (status === 'approved') {
+            actions = `
+              <div class="action-btn-group" style="justify-content: flex-end; display: flex; gap: 0.4rem;">
+                <button class="btn-reject teacher-reject-btn" data-action="reject" data-id="${id}" data-name="${fullName}" title="Revoke Teacher access" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                  <span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">block</span>
+                  Revoke Teacher
+                </button>
+              </div>
+            `;
+          } else if (status === 'rejected') {
+            actions = `
+              <div class="action-btn-group" style="justify-content: flex-end; display: flex; gap: 0.4rem;">
+                <button class="btn-approve teacher-approve-btn" data-action="approve" data-id="${id}" data-name="${fullName}" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;">
+                  <span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">check</span>
+                  Re-Approve
+                </button>
+              </div>
+            `;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--outline-variant); transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 0.85rem 1rem;">
+                <strong style="color: #0f172a; font-size: 0.88rem;">${fullName}</strong>
+                <div style="font-size: 0.8rem; color: #475569;">${email}</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Phone: ${phone}</div>
+                ${notes}
+              </td>
+              <td style="padding: 0.85rem 1rem;">
+                ${requestedClassesHtml}
+              </td>
+              <td style="padding: 0.85rem 1rem;">
+                ${ctRequestsHtml}
+              </td>
+              <td style="padding: 0.85rem 1rem; max-width: 250px;">
+                ${conflictsHtml}
+              </td>
+              <td style="padding: 0.85rem 1rem;">
+                <span class="badge-status ${status}">
+                  <span class="material-symbols-outlined" style="font-size: 0.85rem;">
+                    ${status === 'approved' ? 'check_circle' : status === 'rejected' ? 'cancel' : 'schedule'}
+                  </span>
+                  ${status}
+                </span>
+              </td>
+              <td style="padding: 0.85rem 1rem; text-align: right;">
+                ${actions}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      // Teacher Applications Table Action Clicks (Approve / Reject)
+      const teacherAppsTableBody = document.getElementById('teacherAppsTableBody');
+      teacherAppsTableBody?.addEventListener('click', async (e) => {
+        const button = e.target.closest('[data-action][data-id]');
+        if (!button) return;
+
+        const action = button.dataset.action;
+        const id = button.dataset.id;
+        const applicantName = button.dataset.name || 'this applicant';
+
+        const actionLabel = action === 'approve' ? 'Approve' : 'Reject';
+        const confirmMessage = action === 'approve'
+          ? `Are you sure you want to APPROVE ${applicantName} as Teacher? This will grant them Teacher access and assign the requested subjects/classes.`
+          : `Are you sure you want to REJECT ${applicantName}? This will deny or revoke their Teacher access.`;
+
+        if (!window.confirm(confirmMessage)) return;
+
+        button.disabled = true;
+        const originalContent = button.innerHTML;
+        button.innerHTML = `<span class="material-symbols-outlined" style="font-size:0.95rem; animation: spin 1s linear infinite;">sync</span> Processing…`;
+
+        try {
+          const res = await api.post(`/admin/teacher-applications/${encodeURIComponent(id)}/${action}`, action === 'approve' ? { override_conflicts: true } : {});
+          if (typeof showToast === 'function') {
+            showToast(res.message || `Teacher application ${action}d successfully.`, 'success');
+          }
+          await loadTeacherApplications();
+          await updateTeacherPendingBadge();
+        } catch (err) {
+          console.error(`Teacher application ${action} error:`, err);
+          button.disabled = false;
+          button.innerHTML = originalContent;
+          if (typeof showToast === 'function') {
+            showToast(err.message || `Unable to ${action} teacher application.`, 'error');
+          } else {
+            alert(err.message || `Unable to ${action} teacher application.`);
+          }
+        }
+      });
+
+      // Refresh teacher applications button
+      document.getElementById('refreshTeacherAppsBtn')?.addEventListener('click', async () => {
+        await loadTeacherApplications();
+        if (typeof showToast === 'function') {
+          showToast('Teacher applications refreshed', 'success');
+        }
+      });
+
       // Filter search input
       searchInput.addEventListener('input', () => {
-        renderApplicationsTable();
+        if (currentFilterStatus === 'teacher_applications') {
+          renderTeacherApplicationsTable();
+        } else {
+          renderApplicationsTable();
+        }
       });
 
       // Refresh button
       refreshBtn.addEventListener('click', async () => {
-        await fetchApplications();
+        if (currentFilterStatus === 'teacher_applications') {
+          await loadTeacherApplications();
+        } else if (currentFilterStatus === 'staff_salary') {
+          await loadStaffList();
+        } else {
+          await fetchApplications();
+        }
+        await updateTeacherPendingBadge();
         if (typeof showToast === 'function') {
           showToast('Applications refreshed', 'success');
         }
       });
 
-      // Table Action clicks (Approve / Reject)
+      // Table Action clicks (Approve / Reject) for Staff Applications
       tableBody.addEventListener('click', async (e) => {
         const button = e.target.closest('[data-action][data-id]');
         if (!button) return;
@@ -1344,6 +1593,7 @@
 
       // Initial load
       await fetchApplications();
+      await updateTeacherPendingBadge();
     });
   </script>
 </body>

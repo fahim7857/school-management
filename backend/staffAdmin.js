@@ -170,6 +170,17 @@ staffAdminRouter.post(
         return res.status(500).json({ success: false, message: fetchErr.message });
       }
       if (!appRow) {
+        try {
+          const { data: teacherApp } = await admin.from('teacher_applications')
+            .select('id').eq('id', req.params.id).maybeSingle();
+          if (teacherApp) {
+            return res.status(400).json({
+              success: false,
+              message: 'This is a Teacher application. Please process it using the Teacher application approval workflow.',
+              is_teacher_application: true
+            });
+          }
+        } catch (e) {}
         return res.status(404).json({ success: false, message: 'Application not found.' });
       }
 
@@ -281,6 +292,17 @@ staffAdminRouter.post(
         return res.status(500).json({ success: false, message: fetchErr.message });
       }
       if (!appRow) {
+        try {
+          const { data: teacherApp } = await admin.from('teacher_applications')
+            .select('id').eq('id', req.params.id).maybeSingle();
+          if (teacherApp) {
+            return res.status(400).json({
+              success: false,
+              message: 'This is a Teacher application. Please process it using the Teacher application rejection workflow.',
+              is_teacher_application: true
+            });
+          }
+        } catch (e) {}
         return res.status(404).json({ success: false, message: 'Application not found.' });
       }
 
