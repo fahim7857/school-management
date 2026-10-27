@@ -4612,21 +4612,64 @@ apiRouter.put('/academic/subjects/:id', requireStaffOrAdmin, (req, res) => {
       return res.status(404).json({ success: false, error: 'Subject not found' });
     }
 
-    const { name, code, full_marks, is_optional, is_active } = req.body;
+    const { name, code, full_marks, is_optional, is_active, is_non_graded } = req.body;
     const sName = (name && name.trim()) ? name.trim() : subj.name;
     const sCode = code !== undefined ? code.trim() : subj.code;
     const fMarks = full_marks !== undefined ? (parseInt(full_marks, 10) || 100) : subj.full_marks;
     const isOpt = is_optional !== undefined ? (is_optional ? 1 : 0) : subj.is_optional;
     const active = is_active !== undefined ? (is_active ? 1 : 0) : subj.is_active;
+    const nonGraded = is_non_graded !== undefined ? (is_non_graded ? 1 : 0) : (subj.is_non_graded || 0);
 
     db.prepare(`
       UPDATE subjects
-      SET name = ?, code = ?, full_marks = ?, is_optional = ?, is_active = ?
+      SET name = ?, code = ?, full_marks = ?, is_optional = ?, is_active = ?, is_non_graded = ?
       WHERE id = ?
-    `).run(sName, sCode, fMarks, isOpt, active, id);
+    `).run(sName, sCode, fMarks, isOpt, active, nonGraded, id);
 
     const updated = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
     res.json({ success: true, message: `Subject "${updated.name}" updated successfully`, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update subject non-graded status (Class Teacher or Staff/Admin)
+apiRouter.put('/academic/subjects/:id/grading-status', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const subj = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
+    if (!subj) {
+      return res.status(404).json({ success: false, error: 'Subject not found' });
+    }
+
+    const isStaffOrAdmin = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
+    const isTeacher = req.auth?.role === 'teacher';
+
+    if (!isStaffOrAdmin && !isTeacher) {
+      return res.status(403).json({ success: false, error: 'Access denied: Unauthorized.' });
+    }
+
+    if (isTeacher) {
+      const tc = req.teacherContext;
+      if (!tc || !tc.teacher || !tc.teacher.is_active || !tc.isClassTeacher(subj.class_id)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied: Only the designated Class Teacher for this class can configure Non-Graded subjects.'
+        });
+      }
+    }
+
+    const { is_non_graded } = req.body;
+    const nonGradedVal = is_non_graded ? 1 : 0;
+
+    db.prepare('UPDATE subjects SET is_non_graded = ? WHERE id = ?').run(nonGradedVal, id);
+    const updated = db.prepare('SELECT * FROM subjects WHERE id = ?').get(id);
+
+    res.json({
+      success: true,
+      message: `Subject "${updated.name}" is now marked as ${nonGradedVal ? 'Non-Graded' : 'Graded'}.`,
+      data: updated
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -4894,7 +4937,7 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
     const selectedClassId = req.query.class_id ? parseInt(req.query.class_id, 10) : exam.class_id;
     const selectedSubjectId = req.query.subject_id ? parseInt(req.query.subject_id, 10) : null;
 
-    let isClassTeacher = false;
+    let isClassTeacher = req.auth?.role === 'super_admin' || req.auth?.role === 'staff';
     let allowedSubjectIds = null;
 
     // Check teacher permission if role is teacher
@@ -5002,7 +5045,7 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
     const exam = db.prepare('SELECT * FROM examinations WHERE id = ?').get(examId);
     if (!exam) return res.status(404).json({ success: false, error: 'Examination not found' });
 
-    const { marks_list, monthly_test_max_marks } = req.body;
+    const { marks_list, monthly_test_max_marks, is_non_graded } = req.body;
     if (!Array.isArray(marks_list) || marks_list.length === 0) {
       return res.status(400).json({ success: false, error: 'marks_list array is required' });
     }
@@ -5159,6 +5202,20 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
               INSERT INTO examination_subject_config (examination_id, subject_id, monthly_test_max_marks)
               VALUES (?, ?, ?)
             `).run(examId, subId, parsedMtMax);
+          }
+        }
+      }
+
+      // Update is_non_graded if specified by Class Teacher or Admin/Staff
+      if (is_non_graded !== undefined) {
+        const nonGradedVal = (is_non_graded === true || is_non_graded === 1 || is_non_graded === '1') ? 1 : 0;
+        for (const subId of distinctSubjectIds) {
+          const subj = db.prepare('SELECT id, class_id FROM subjects WHERE id = ?').get(subId);
+          if (subj) {
+            const canUpdate = isStaffOrAdmin || (isTeacher && req.teacherContext && req.teacherContext.isClassTeacher(subj.class_id));
+            if (canUpdate) {
+              db.prepare('UPDATE subjects SET is_non_graded = ? WHERE id = ?').run(nonGradedVal, subId);
+            }
           }
         }
       }
@@ -5322,16 +5379,21 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
       let totalGpa = 0;
       let hasFail = false;
       let subjectsWithMarks = 0;
+      let gradedSubjectCount = 0;
 
       const marksDetail = subjects.map(sub => {
         const m = stMarks.find(item => item.subject_id === sub.id);
         const finalScore = m ? m.final_score : 0;
         const gradeInfo = m ? { grade: m.grade, gpa: m.grade_point } : getGradeAndGpa(finalScore);
+        const isNonGraded = sub.is_non_graded === 1 || sub.is_non_graded === true || sub.is_non_graded === '1';
 
         if (m) subjectsWithMarks++;
         totalMarksObtained += finalScore;
-        totalGpa += gradeInfo.gpa;
-        if (gradeInfo.grade === 'F') hasFail = true;
+        if (!isNonGraded) {
+          totalGpa += gradeInfo.gpa;
+          gradedSubjectCount++;
+          if (gradeInfo.grade === 'F') hasFail = true;
+        }
 
         const subMaxMarks = (subConfigMap[sub.id] !== undefined && subConfigMap[sub.id] > 0) ? subConfigMap[sub.id] : 100;
 
@@ -5364,18 +5426,19 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
           subject_name: sub.name,
           full_marks: sub.full_marks || 100,
           monthly_test_max_marks: subMaxMarks,
+          is_non_graded: isNonGraded ? 1 : 0,
           term_marks: Math.round(termMarks * 10) / 10,
           mt_marks: Math.round(mtMarks * 10) / 10,
           total_marks: finalScore,
-          grade: gradeInfo.grade,
-          grade_point: gradeInfo.gpa.toFixed(2),
+          grade: isNonGraded ? '—' : gradeInfo.grade,
+          grade_point: isNonGraded ? '—' : gradeInfo.gpa.toFixed(2),
           highest_marks: highestMarksMap[sub.id] || 0
         };
       });
 
       const averageMarks = subjectCount > 0 ? (totalMarksObtained / subjectCount) : 0;
       const percentage = grandTotalMarks > 0 ? ((totalMarksObtained / grandTotalMarks) * 100) : 0;
-      const obtainedGpa = subjectCount > 0 ? (hasFail ? 0 : totalGpa / subjectCount) : 0;
+      const obtainedGpa = gradedSubjectCount > 0 ? (hasFail ? 0 : totalGpa / gradedSubjectCount) : 0;
       const overallGrade = getGradeAndGpa(averageMarks);
 
       // Fetch attendance & metadata (Class Teacher or Super Admin/Staff only)
@@ -5398,7 +5461,7 @@ apiRouter.get('/examinations/:id/results', (req, res) => {
         average_marks: Math.round(averageMarks * 10) / 10,
         percentage: Math.round(percentage * 10) / 10,
         obtained_gpa: hasFail ? 0.00 : Math.round(obtainedGpa * 100) / 100,
-        overall_grade: hasFail ? 'F' : overallGrade.grade,
+        overall_grade: hasFail ? 'F' : (gradedSubjectCount === 0 ? '—' : overallGrade.grade),
         remarks: hasFail ? 'Fail' : overallGrade.remarks,
         total_working_days: meta ? (meta.total_working_days ?? null) : null,
         presence: meta ? (meta.presence ?? meta.presence_days ?? null) : null,

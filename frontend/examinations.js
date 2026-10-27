@@ -121,6 +121,7 @@ function setupEventListeners() {
   document.getElementById('sheetClassSelect')?.addEventListener('change', handleClassSelectChange);
   document.getElementById('sheetSubjectSelect')?.addEventListener('change', loadMarksSheet);
   document.getElementById('sheetMonthlyMaxInput')?.addEventListener('input', handleMonthlyMaxMarksChange);
+  document.getElementById('sheetNonGradedCheckbox')?.addEventListener('change', handleNonGradedCheckboxChange);
 
   // Save Marks Button
   document.getElementById('saveMarksBtn')?.addEventListener('click', handleSaveMarks);
@@ -436,6 +437,19 @@ async function loadMarksSheet() {
       maxWrapper.style.display = (res.data.exam?.stream === 'Hifz') ? 'none' : 'block';
     }
 
+    // Toggle non-graded subject configuration (Class Teacher or Admin only)
+    const nonGradedWrapper = document.getElementById('nonGradedSubjectWrapper');
+    const nonGradedCheckbox = document.getElementById('sheetNonGradedCheckbox');
+    if (nonGradedWrapper && nonGradedCheckbox) {
+      if (res.data.is_class_teacher) {
+        nonGradedWrapper.style.display = 'block';
+        const currentSub = res.data.subjects?.find(s => String(s.id) === String(subjectId));
+        nonGradedCheckbox.checked = currentSub?.is_non_graded === 1 || currentSub?.is_non_graded === true;
+      } else {
+        nonGradedWrapper.style.display = 'none';
+      }
+    }
+
     renderMarksSheetGrid(currentMarksSheet);
 
     const hasStudents = currentMarksSheet.students && currentMarksSheet.students.length > 0;
@@ -474,6 +488,31 @@ function handleMonthlyMaxMarksChange() {
 
   // Re-run calculations on all rows
   recalculateAllMarksRows();
+}
+
+async function handleNonGradedCheckboxChange() {
+  const checkbox = document.getElementById('sheetNonGradedCheckbox');
+  const subjectId = document.getElementById('sheetSubjectSelect')?.value;
+  if (!checkbox || !subjectId) return;
+
+  try {
+    const res = await apiClient.put(`/academic/subjects/${subjectId}/grading-status`, {
+      is_non_graded: checkbox.checked
+    });
+    if (res && res.success) {
+      notify(res.message || 'Subject grading status updated', 'success');
+      if (currentMarksSheet && currentMarksSheet.subjects) {
+        const sub = currentMarksSheet.subjects.find(s => String(s.id) === String(subjectId));
+        if (sub) sub.is_non_graded = checkbox.checked ? 1 : 0;
+      }
+    } else {
+      throw new Error(res?.error || 'Failed to update grading status');
+    }
+  } catch (err) {
+    console.error('Error updating non-graded status:', err);
+    checkbox.checked = !checkbox.checked; // Revert checkbox on error
+    notify(err.message || 'Error updating non-graded status', 'error');
+  }
 }
 
 function recalculateAllMarksRows() {
@@ -853,6 +892,11 @@ async function handleSaveMarks() {
     if (!isHifz) {
       payload.monthly_test_max_marks = configuredMtMax;
       payload.subject_id = parseInt(subjectId, 10);
+    }
+
+    const nonGradedCb = document.getElementById('sheetNonGradedCheckbox');
+    if (nonGradedCb && currentMarksSheet?.is_class_teacher) {
+      payload.is_non_graded = nonGradedCb.checked;
     }
 
     const res = await apiClient.post(`/examinations/${examId}/save-marks`, payload);

@@ -316,6 +316,7 @@ export async function initDatabase() {
       code TEXT,
       full_marks REAL DEFAULT 100,
       is_active INTEGER DEFAULT 1,
+      is_non_graded INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       FOREIGN KEY (academic_year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
       FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
@@ -500,7 +501,8 @@ export async function initDatabase() {
     "ALTER TABLE teacher_salary_payments ADD COLUMN payment_method TEXT DEFAULT 'Cash';",
     "ALTER TABLE teacher_advances ADD COLUMN is_recovered INTEGER DEFAULT 0;",
     "ALTER TABLE teacher_advances ADD COLUMN payment_method TEXT DEFAULT 'Cash';",
-    "ALTER TABLE classes ADD COLUMN class_teacher_id INTEGER;"
+    "ALTER TABLE classes ADD COLUMN class_teacher_id INTEGER;",
+    "ALTER TABLE subjects ADD COLUMN is_non_graded INTEGER DEFAULT 0;"
   ];
 
   for (const m of migrations) {

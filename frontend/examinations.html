@@ -105,6 +105,14 @@
         <div class="topbar-actions">
           <span class="badge-tag" id="activeAyBadge">AY 2026</span>
           <div class="topbar-date" id="topbarDate">--</div>
+
+          <div class="user-profile">
+            <div class="user-avatar">US</div>
+            <div class="user-info">
+              <div class="user-name">User</div>
+              <div class="user-role">Teacher</div>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -210,6 +218,14 @@
             <div id="monthlyMaxMarksWrapper">
               <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">MONTHLY TEST MAX MARKS *</label>
               <input type="number" id="sheetMonthlyMaxInput" class="form-control" style="font-size: 0.82rem;" min="1" step="any" value="100" placeholder="e.g. 50, 25, 100">
+            </div>
+
+            <div id="nonGradedSubjectWrapper" style="display: none; align-self: flex-end; padding-bottom: 0.25rem;">
+              <label class="form-label" style="font-size: 0.72rem; font-weight: 700; color: #64748b; margin-bottom: 0.35rem;">GRADING TYPE</label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; font-weight: 600; color: #1e293b; cursor: pointer; background: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; border: 1px solid #cbd5e1;">
+                <input type="checkbox" id="sheetNonGradedCheckbox" style="width: 16px; height: 16px; accent-color: #004ac6; cursor: pointer;">
+                <span>Non-Graded Subject</span>
+              </label>
             </div>
           </div>
 

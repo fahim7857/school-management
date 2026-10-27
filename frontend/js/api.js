@@ -2433,7 +2433,22 @@ if (typeof document !== 'undefined') {
           }
 
           // Populate user info & add logout button if missing
-          const profileEl = document.querySelector('.user-profile');
+          let profileEl = document.querySelector('.user-profile');
+          if (!profileEl) {
+            const topbarActions = document.querySelector('.topbar-actions') || document.querySelector('.header-actions') || document.querySelector('.app-topbar');
+            if (topbarActions) {
+              profileEl = document.createElement('div');
+              profileEl.className = 'user-profile';
+              profileEl.innerHTML = `
+                <div class="user-avatar">US</div>
+                <div class="user-info">
+                  <div class="user-name">User</div>
+                  <div class="user-role">Teacher</div>
+                </div>
+              `;
+              topbarActions.appendChild(profileEl);
+            }
+          }
           if (profileEl) {
             const email = state.user?.email || '';
             const fullName = state.user?.user_metadata?.full_name || state.user?.user_metadata?.name || email.split('@')[0] || 'User';

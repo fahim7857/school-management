@@ -275,9 +275,12 @@ function renderAllCards(data, results) {
     const passClass = st.overall_grade === 'F' ? 'color: #dc2626;' : 'color: #16a34a;';
 
     // Subject Rows
-    const subjectsRows = (st.subjects || []).map(sub => `
+    const subjectsRows = (st.subjects || []).map(sub => {
+      const isNonGraded = sub.is_non_graded === 1 || sub.is_non_graded === true || sub.is_non_graded === '1';
+      const nonGradedBadge = isNonGraded ? ' <span style="font-size: 0.68rem; font-weight: 700; color: #475569; background: #e2e8f0; padding: 1px 5px; border-radius: 4px; margin-left: 4px;">Non-Graded</span>' : '';
+      return `
       <tr>
-        <td class="subject-name">${escapeHtml(sub.subject_name)}</td>
+        <td class="subject-name">${escapeHtml(sub.subject_name)}${nonGradedBadge}</td>
         <td>${sub.full_marks || 100}</td>
         <td>${isHifz ? sub.term_marks : sub.term_marks}</td>
         <td>${isHifz ? sub.mt_marks : sub.mt_marks}</td>
@@ -286,7 +289,8 @@ function renderAllCards(data, results) {
         <td style="font-weight: 700;">${sub.grade}</td>
         <td style="font-weight: 700;">${sub.grade_point}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
       <div class="report-card-container-item">
@@ -366,7 +370,7 @@ function renderAllCards(data, results) {
               <td style="font-weight: 900; color: #004ac6; font-size: 0.95rem;">${st.total_marks_obtained}</td>
               <td style="font-size: 0.72rem; color: #64748b;">Avg: ${st.average_marks}%</td>
               <td style="font-weight: 900; ${passClass}">${st.overall_grade}</td>
-              <td style="font-weight: 900; ${passClass}">${st.obtained_gpa.toFixed(2)}</td>
+              <td style="font-weight: 900; ${passClass}">${typeof st.obtained_gpa === 'number' ? st.obtained_gpa.toFixed(2) : (!isNaN(Number(st.obtained_gpa)) ? Number(st.obtained_gpa).toFixed(2) : (st.obtained_gpa ?? '0.00'))}</td>
             </tr>
           </tbody>
         </table>
