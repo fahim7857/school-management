@@ -4480,7 +4480,7 @@ apiRouter.get('/academic/classes', (req, res) => {
     const classes = db.prepare(query).all(...params);
     const enriched = classes.map(c => ({
       ...c,
-      is_class_teacher: req.auth?.role === 'teacher' ? Boolean(req.teacherContext?.isClassTeacher(c.id)) : false
+      is_class_teacher: req.auth?.role === 'teacher' ? Boolean(req.teacherContext?.isClassTeacher(c.id)) : true
     }));
 
     res.json({ success: true, data: enriched });
@@ -4510,8 +4510,8 @@ apiRouter.get('/academic/subjects', (req, res) => {
       params.push(classId);
     }
     if (stream && ['General', 'Hifz'].includes(stream)) {
-      query += ' AND s.stream = ?';
-      params.push(stream);
+      query += ' AND (s.stream = ? COLLATE NOCASE OR c.stream = ? COLLATE NOCASE)';
+      params.push(stream, stream);
     }
 
     // Teacher filtering
@@ -4549,7 +4549,7 @@ apiRouter.get('/academic/subjects', (req, res) => {
       }
     }
 
-    query += ' ORDER BY s.stream ASC, c.class_number ASC, s.name ASC';
+    query += ' GROUP BY s.id ORDER BY s.stream ASC, c.class_number ASC, s.name ASC';
 
     const subjects = db.prepare(query).all(...params);
     res.json({ success: true, data: subjects });
@@ -5021,6 +5021,9 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
       ? (configMap[selectedSubjectId] !== undefined ? configMap[selectedSubjectId] : 100)
       : 100;
 
+    const selSub = selectedSubjectId ? enrichedSubjects.find(s => s.id === selectedSubjectId) : (enrichedSubjects.length > 0 ? enrichedSubjects[0] : null);
+    const selectedIsNonGraded = selSub ? (selSub.is_non_graded === 1 || selSub.is_non_graded === true) : false;
+
     res.json({
       success: true,
       data: {
@@ -5029,6 +5032,8 @@ apiRouter.get('/examinations/:id/marks-sheet', (req, res) => {
         students,
         marks,
         is_class_teacher: isClassTeacher,
+        is_non_graded: selectedIsNonGraded ? 1 : 0,
+        selected_subject: selSub || null,
         monthly_test_max_marks: configuredMax,
         subject_configs: configMap
       }
@@ -5081,7 +5086,7 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         if (!subj) {
           return res.status(400).json({ success: false, error: `Invalid subject ID: ${subId}` });
         }
-        const targetClassId = subj.class_id || item.class_id || exam.class_id;
+        const targetClassId = subj.class_id;
         const isCT = tc.isClassTeacher(targetClassId);
         const hasSub = tc.hasSubject(subId);
         if (!isCT && !hasSub) {
@@ -5096,10 +5101,16 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
         if (!student) {
           return res.status(400).json({ success: false, error: `Student ID ${stuId} not found.` });
         }
-        if (targetClassId && student.class_id !== targetClassId) {
+        if (student.class_id !== targetClassId) {
           return res.status(400).json({
             success: false,
             error: `Student ID ${stuId} does not belong to subject's class ID ${targetClassId}.`
+          });
+        }
+        if (exam.class_id && exam.class_id !== targetClassId) {
+          return res.status(400).json({
+            success: false,
+            error: `Subject does not belong to examination's class.`
           });
         }
       }
@@ -5209,7 +5220,10 @@ apiRouter.post('/examinations/:id/save-marks', (req, res) => {
       // Update is_non_graded if specified by Class Teacher or Admin/Staff
       if (is_non_graded !== undefined) {
         const nonGradedVal = (is_non_graded === true || is_non_graded === 1 || is_non_graded === '1') ? 1 : 0;
-        for (const subId of distinctSubjectIds) {
+        const targetSubjectIds = new Set(distinctSubjectIds);
+        if (req.body.subject_id) targetSubjectIds.add(parseInt(req.body.subject_id, 10));
+        for (const subId of targetSubjectIds) {
+          if (!subId) continue;
           const subj = db.prepare('SELECT id, class_id FROM subjects WHERE id = ?').get(subId);
           if (subj) {
             const canUpdate = isStaffOrAdmin || (isTeacher && req.teacherContext && req.teacherContext.isClassTeacher(subj.class_id));

@@ -8,14 +8,16 @@ let currentMonthlyMaxMarks = 100;
 
 const apiClient = window.api || (typeof api !== 'undefined' ? api : {
   get: (url, p) => {
-    let full = '/abms/api' + url;
+    let full = (window.API_BASE || '/abms/api') + url;
     if (p && Object.keys(p).length) {
       const q = new URLSearchParams(p).toString();
       full += (full.includes('?') ? '&' : '?') + q;
     }
     return (window.authFetch ? window.authFetch(full) : fetch(full)).then(r => r.json());
   },
-  post: (url, b) => (window.authFetch ? window.authFetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch('/abms/api' + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json())
+  post: (url, b) => (window.authFetch ? window.authFetch((window.API_BASE || '/abms/api') + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch((window.API_BASE || '/abms/api') + url, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
+  put: (url, b) => (window.authFetch ? window.authFetch((window.API_BASE || '/abms/api') + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } }) : fetch((window.API_BASE || '/abms/api') + url, { method: 'PUT', body: JSON.stringify(b), headers: { 'Content-Type': 'application/json' } })).then(r => r.json()),
+  delete: (url) => (window.authFetch ? window.authFetch((window.API_BASE || '/abms/api') + url, { method: 'DELETE' }) : fetch((window.API_BASE || '/abms/api') + url, { method: 'DELETE' })).then(r => r.json())
 });
 
 function escapeHtml(str) {
@@ -376,14 +378,24 @@ async function handleClassSelectChange() {
 
     if (res && res.success) {
       const subjects = res.data || [];
+      const uniqueSubjects = [];
+      const seenIds = new Set();
+      for (const s of subjects) {
+        if (!seenIds.has(s.id)) {
+          seenIds.add(s.id);
+          uniqueSubjects.push(s);
+        }
+      }
+
       let html = '<option value="">Select subject...</option>';
-      subjects.forEach(s => {
-        html += `<option value="${s.id}">${escapeHtml(s.name)} (Full: ${s.full_marks || 100})</option>`;
+      uniqueSubjects.forEach(s => {
+        const nonGradedTag = (s.is_non_graded === 1 || s.is_non_graded === true) ? ' [Non-Graded]' : '';
+        html += `<option value="${s.id}">${escapeHtml(s.name)} (Full: ${s.full_marks || 100})${nonGradedTag}</option>`;
       });
       subjSel.innerHTML = html;
 
-      if (subjects.length > 0) {
-        subjSel.value = subjects[0].id;
+      if (uniqueSubjects.length > 0) {
+        subjSel.value = uniqueSubjects[0].id;
       }
       await loadMarksSheet();
     }
@@ -403,11 +415,14 @@ async function loadMarksSheet() {
   const thead = document.getElementById('marksSheetThead');
   const saveBtn = document.getElementById('saveMarksBtn');
   const resultBtn = document.getElementById('viewResultCardsBtn');
+  const nonGradedWrapper = document.getElementById('nonGradedSubjectWrapper');
+  const nonGradedCheckbox = document.getElementById('sheetNonGradedCheckbox');
 
   if (!examId || !classId || !subjectId) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #64748b;">Please select an Examination, Class, and Subject above.</td></tr>`;
     if (saveBtn) saveBtn.style.display = 'none';
     if (resultBtn) resultBtn.style.display = 'none';
+    if (nonGradedWrapper) nonGradedWrapper.style.display = 'none';
     return;
   }
 
@@ -438,15 +453,19 @@ async function loadMarksSheet() {
     }
 
     // Toggle non-graded subject configuration (Class Teacher or Admin only)
-    const nonGradedWrapper = document.getElementById('nonGradedSubjectWrapper');
-    const nonGradedCheckbox = document.getElementById('sheetNonGradedCheckbox');
     if (nonGradedWrapper && nonGradedCheckbox) {
-      if (res.data.is_class_teacher) {
+      const selectedClass = activeClasses.find(c => String(c.id) === String(classId));
+      const canConfigureNonGraded = Boolean(res.data.is_class_teacher || selectedClass?.is_class_teacher);
+      if (canConfigureNonGraded) {
         nonGradedWrapper.style.display = 'block';
         const currentSub = res.data.subjects?.find(s => String(s.id) === String(subjectId));
-        nonGradedCheckbox.checked = currentSub?.is_non_graded === 1 || currentSub?.is_non_graded === true;
+        const isNonGraded = res.data.is_non_graded !== undefined
+          ? Boolean(res.data.is_non_graded)
+          : Boolean(currentSub?.is_non_graded === 1 || currentSub?.is_non_graded === true);
+        nonGradedCheckbox.checked = isNonGraded;
       } else {
         nonGradedWrapper.style.display = 'none';
+        nonGradedCheckbox.checked = false;
       }
     }
 
@@ -501,9 +520,18 @@ async function handleNonGradedCheckboxChange() {
     });
     if (res && res.success) {
       notify(res.message || 'Subject grading status updated', 'success');
-      if (currentMarksSheet && currentMarksSheet.subjects) {
-        const sub = currentMarksSheet.subjects.find(s => String(s.id) === String(subjectId));
-        if (sub) sub.is_non_graded = checkbox.checked ? 1 : 0;
+      if (currentMarksSheet) {
+        currentMarksSheet.is_non_graded = checkbox.checked ? 1 : 0;
+        if (currentMarksSheet.subjects) {
+          const sub = currentMarksSheet.subjects.find(s => String(s.id) === String(subjectId));
+          if (sub) sub.is_non_graded = checkbox.checked ? 1 : 0;
+        }
+      }
+      const subjSel = document.getElementById('sheetSubjectSelect');
+      const opt = subjSel ? subjSel.querySelector(`option[value="${subjectId}"]`) : null;
+      if (opt) {
+        let baseText = opt.textContent.replace(' [Non-Graded]', '').trim();
+        opt.textContent = checkbox.checked ? `${baseText} [Non-Graded]` : baseText;
       }
     } else {
       throw new Error(res?.error || 'Failed to update grading status');
@@ -895,7 +923,9 @@ async function handleSaveMarks() {
     }
 
     const nonGradedCb = document.getElementById('sheetNonGradedCheckbox');
-    if (nonGradedCb && currentMarksSheet?.is_class_teacher) {
+    const selectedClass = activeClasses.find(c => c.id == classId);
+    const canConfigureNonGraded = currentMarksSheet?.is_class_teacher || selectedClass?.is_class_teacher || false;
+    if (nonGradedCb && canConfigureNonGraded) {
       payload.is_non_graded = nonGradedCb.checked;
     }
 
