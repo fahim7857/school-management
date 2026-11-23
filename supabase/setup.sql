@@ -78,4 +78,12 @@ FROM auth.users
 WHERE lower(email) = lower('newemail@example.com')
 ON CONFLICT (user_id)
 DO UPDATE SET role = 'super_admin';
---staff application zero korar sql code
+--staff application zero korar sql code:
+-- Delete any duplicate pending staff applications for teachers:
+DELETE FROM public.staff_applications
+WHERE email IN (SELECT email FROM public.teacher_applications)
+  AND status = 'pending';
+
+-- If you have an automatic signup trigger on auth.users in Supabase, drop it so it does not duplicate:
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();

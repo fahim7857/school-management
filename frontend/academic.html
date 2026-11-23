@@ -348,6 +348,39 @@
     </div>
   </div>
 
+  <!-- Modal: Assign Class Teacher -->
+  <div id="assignClassTeacherModal" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Designate Class Teacher</h3>
+        <button type="button" class="modal-close" onclick="closeModal('assignClassTeacherModal')" aria-label="Close modal">&times;</button>
+      </div>
+      <form id="assignClassTeacherForm">
+        <input type="hidden" id="assignClassTeacherClassId">
+        <div class="modal-body" style="gap: 1rem;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem;">
+            <div style="font-size: 0.72rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Class</div>
+            <div style="font-size: 1.05rem; font-weight: 800; color: #004ac6;" id="assignClassTeacherClassName">Class</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="assignClassTeacherSelect">Select Class Teacher</label>
+            <select id="assignClassTeacherSelect" class="form-control">
+              <option value="">-- No Class Teacher (Unassigned) --</option>
+            </select>
+            <small style="color: #64748b; font-size: 0.72rem; margin-top: 0.25rem; display: block;">
+              Only the designated Class Teacher can input student attendance and manage class remarks.
+            </small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('assignClassTeacherModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary" style="background: #004ac6;">Save Class Teacher</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="js/auth.js"></script>
   <script src="js/api.js"></script>
   <script src="academic.js"></script>

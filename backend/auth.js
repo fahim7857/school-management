@@ -37,7 +37,7 @@ export function getTeacherContext(userId) {
   const classTeacherClassIds = new Set(classTeacherClasses.map(c => c.id));
   const allClassIds = new Set([...assignedClassIds, ...classTeacherClassIds]);
 
-  if (allClassIds.size === 0) {
+  if (assignedClassIds.size === 0 && classTeacherClassIds.size === 0) {
     return null;
   }
 

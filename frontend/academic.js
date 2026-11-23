@@ -142,6 +142,7 @@ function setupEventListeners() {
   document.getElementById('subjStreamInput')?.addEventListener('change', updateModalClassDropdown);
   document.getElementById('subjectForm')?.addEventListener('submit', handleSaveSubject);
   document.getElementById('assignForm')?.addEventListener('submit', handleSaveAssignment);
+  document.getElementById('assignClassTeacherForm')?.addEventListener('submit', handleSaveClassTeacher);
 }
 
 async function loadAllInitialData() {
@@ -509,24 +510,80 @@ function renderClassesTable(classes) {
     return;
   }
 
-  tbody.innerHTML = classes.map(c => `
-    <tr>
-      <td style="font-weight: 700; color: #004ac6;">${escapeHtml(c.name)}</td>
-      <td>
-        <span class="rate-badge" style="background: ${c.stream === 'Hifz' ? '#d1fae5' : '#e0f2fe'}; color: ${c.stream === 'Hifz' ? '#065f46' : '#0369a1'}; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;">
-          ${escapeHtml(c.stream)}
-        </span>
-      </td>
-      <td>#${c.class_number}</td>
-      <td style="font-weight: 600;">৳${(c.monthly_fee || 0).toLocaleString()}</td>
-      <td style="color: #475569;">${escapeHtml(c.class_teacher || 'Md. Rafiqul Islam')}</td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = classes.map(c => {
+    const hasTeacher = Boolean(c.class_teacher_name);
+    return `
+      <tr>
+        <td style="font-weight: 700; color: #004ac6;">${escapeHtml(c.name)}</td>
+        <td>
+          <span class="rate-badge" style="background: ${c.stream === 'Hifz' ? '#d1fae5' : '#e0f2fe'}; color: ${c.stream === 'Hifz' ? '#065f46' : '#0369a1'}; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; font-weight: 700;">
+            ${escapeHtml(c.stream)}
+          </span>
+        </td>
+        <td>#${c.class_number}</td>
+        <td style="font-weight: 600;">৳${(c.monthly_fee || 0).toLocaleString()}</td>
+        <td>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+            <span style="${hasTeacher ? 'font-weight: 600; color: #1e293b;' : 'color: #94a3b8; font-style: italic; font-size: 0.82rem;'}">
+              ${hasTeacher ? `⭐ ${escapeHtml(c.class_teacher_name)}` : 'Unassigned'}
+            </span>
+            <button class="btn btn-secondary btn-sm" onclick="openAssignClassTeacherModal(${c.id}, '${escapeHtml(c.name)}', ${c.class_teacher_id || 'null'})" style="padding: 0.2rem 0.5rem; font-size: 0.74rem;">
+              ${hasTeacher ? 'Change' : 'Assign'}
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openAssignClassTeacherModal(classId, className, currentTeacherId) {
+  document.getElementById('assignClassTeacherClassId').value = classId;
+  document.getElementById('assignClassTeacherClassName').textContent = className;
+
+  const select = document.getElementById('assignClassTeacherSelect');
+  if (select) {
+    let opts = '<option value="">-- No Class Teacher (Unassigned) --</option>';
+    availableTeachers.forEach(t => {
+      const isSel = currentTeacherId && Number(currentTeacherId) === Number(t.id);
+      opts += `<option value="${t.id}" ${isSel ? 'selected' : ''}>${escapeHtml(t.name)} (${escapeHtml(t.stream || 'General')} • ${t.phone || 'No phone'})</option>`;
+    });
+    select.innerHTML = opts;
+  }
+  showModal('assignClassTeacherModal');
+}
+
+async function handleSaveClassTeacher(e) {
+  e.preventDefault();
+  const classId = document.getElementById('assignClassTeacherClassId').value;
+  const teacherId = document.getElementById('assignClassTeacherSelect').value;
+
+  try {
+    const res = await apiClient.put(`/academic/classes/${classId}/class-teacher`, {
+      teacher_id: teacherId ? parseInt(teacherId, 10) : null
+    });
+    if (res && res.success) {
+      notify(res.message || 'Class Teacher updated successfully!', 'success');
+      closeModal('assignClassTeacherModal');
+      // Reload classes and initial data
+      const clsRes = await apiClient.get('/academic/classes');
+      if (clsRes && clsRes.success) {
+        academicClasses = clsRes.data || [];
+      }
+      await loadClasses();
+    } else {
+      notify(res?.error || 'Failed to update Class Teacher', 'error');
+    }
+  } catch (err) {
+    console.error('Error updating class teacher:', err);
+    notify(err.message || 'Failed to update Class Teacher', 'error');
+  }
 }
 
 window.switchAcademicTab = switchAcademicTab;
 window.editSubject = editSubject;
 window.deleteSubject = deleteSubject;
 window.openAssignModal = openAssignModal;
+window.openAssignClassTeacherModal = openAssignClassTeacherModal;
 window.closeModal = closeModal;
 window.showModal = showModal;

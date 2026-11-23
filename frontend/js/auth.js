@@ -118,7 +118,7 @@
       const { data, error } = await client.auth.signUp({
         email,
         password,
-        options: { data: { full_name, phone: phone || null } }
+        options: { data: { full_name, phone: phone || null, role: 'teacher', app_type: 'teacher' } }
       });
       if (error) throw new Error(error.message);
 

@@ -103,6 +103,14 @@ apiRouter.post('/staff-applications', async (req, res) => {
     });
   }
 
+  // Guard: if submitted for a teacher application, block from staff applications
+  if (req.body?.role === 'teacher' || req.body?.app_type === 'teacher') {
+    return res.status(400).json({
+      success: false,
+      error: 'Teacher applications must be submitted via the teacher application portal.'
+    });
+  }
+
   try {
     // Idempotency guard: never create a second pending application for the same email.
     const existing = await adminSupabaseRequest(
@@ -164,7 +172,7 @@ apiRouter.post('/teacher-applications', async (req, res) => {
   if (!Array.isArray(requestedClasses) || requestedClasses.length === 0) {
     return res.status(400).json({
       success: false,
-      error: 'At least one class and subject must be selected'
+      error: 'At least one class must be selected'
     });
   }
 
@@ -176,15 +184,16 @@ apiRouter.post('/teacher-applications', async (req, res) => {
     const cls = db.prepare('SELECT id, name, stream, class_number FROM classes WHERE id = ?').get(cId);
     if (!cls) continue;
 
+    const wantsClassTeacher = Boolean(rc.request_class_teacher || rc.is_class_teacher);
     const subjectIds = Array.isArray(rc.subject_ids) ? rc.subject_ids.map(Number).filter(Boolean) : [];
-    if (subjectIds.length === 0) continue;
+    if (subjectIds.length === 0 && !wantsClassTeacher) continue;
 
     const validSubjects = [];
     for (const sId of subjectIds) {
       const subj = db.prepare('SELECT id, name, code FROM subjects WHERE id = ? AND class_id = ?').get(sId, cId);
       if (subj) validSubjects.push(subj);
     }
-    if (validSubjects.length === 0) continue;
+    if (validSubjects.length === 0 && !wantsClassTeacher) continue;
 
     sanitizedRequests.push({
       class_id: cls.id,
@@ -192,18 +201,35 @@ apiRouter.post('/teacher-applications', async (req, res) => {
       stream: cls.stream,
       subject_ids: validSubjects.map(s => s.id),
       subject_names: validSubjects.map(s => s.name),
-      request_class_teacher: Boolean(rc.request_class_teacher)
+      request_class_teacher: wantsClassTeacher,
+      is_class_teacher: wantsClassTeacher
     });
   }
 
   if (sanitizedRequests.length === 0) {
     return res.status(400).json({
       success: false,
-      error: 'Invalid class or subject selections. Please select valid classes and subjects.'
+      error: 'Invalid class or subject selections. Please select valid classes and subjects, or apply as Class Teacher.'
     });
   }
 
   try {
+    // Proactively clean up any accidental or trigger-created row in staff_applications for this email or user_id
+    try {
+      await adminSupabaseRequest(
+        `/rest/v1/staff_applications?email=eq.${encodeURIComponent(email)}`,
+        { method: 'DELETE' }
+      );
+      if (userId) {
+        await adminSupabaseRequest(
+          `/rest/v1/staff_applications?user_id=eq.${encodeURIComponent(userId)}`,
+          { method: 'DELETE' }
+        );
+      }
+    } catch (cleanErr) {
+      console.warn('Notice: staff_applications cleanup for teacher applicant:', cleanErr?.message);
+    }
+
     // Idempotency check: don't create multiple pending applications for same email
     const existing = await adminSupabaseRequest(
       `/rest/v1/teacher_applications?select=id&email=eq.${encodeURIComponent(email)}&status=eq.pending&limit=1`,
@@ -469,7 +495,7 @@ function analyzeTeacherApplicationConflicts(requestedClasses, currentTeacherId =
     if (!cls) continue;
 
     // Check Class Teacher conflict
-    if (rc.request_class_teacher) {
+    if (rc.request_class_teacher || rc.is_class_teacher) {
       if (cls.class_teacher_id && (!currentTeacherId || cls.class_teacher_id !== currentTeacherId)) {
         const ct = db.prepare('SELECT name, phone FROM teachers WHERE id = ?').get(cls.class_teacher_id);
         conflicts.push({
@@ -674,7 +700,7 @@ apiRouter.post('/admin/teacher-applications/:id/approve', requireSuperAdmin, asy
     let allRequestedClassTeachersPresent = true;
     if (teacher) {
       for (const rc of requested) {
-        if (rc.request_class_teacher) {
+        if (rc.request_class_teacher || rc.is_class_teacher) {
           const cls = db.prepare('SELECT class_teacher_id FROM classes WHERE id = ?').get(parseInt(rc.class_id, 10));
           if (!cls || cls.class_teacher_id !== teacher.id) {
             allRequestedClassTeachersPresent = false;
@@ -804,7 +830,7 @@ apiRouter.post('/admin/teacher-applications/:id/approve', requireSuperAdmin, asy
           const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
           if (!cls) continue;
 
-          if (rc.request_class_teacher) {
+          if (rc.request_class_teacher || rc.is_class_teacher) {
             db.prepare('UPDATE classes SET class_teacher_id = ? WHERE id = ?').run(teacherId, classId);
           }
 
@@ -881,6 +907,22 @@ apiRouter.post('/admin/teacher-applications/:id/approve', requireSuperAdmin, asy
           })
         }
       );
+    }
+
+    // Clean up any stale or duplicate staff application entry for this approved teacher
+    try {
+      await adminSupabaseRequest(
+        `/rest/v1/staff_applications?email=eq.${encodeURIComponent(application.email)}`,
+        { method: 'DELETE' }
+      );
+      if (user?.id) {
+        await adminSupabaseRequest(
+          `/rest/v1/staff_applications?user_id=eq.${encodeURIComponent(user.id)}`,
+          { method: 'DELETE' }
+        );
+      }
+    } catch (cleanStaffErr) {
+      console.warn('Notice: cleaning staff application for approved teacher:', cleanStaffErr?.message);
     }
 
     return res.json({
@@ -4486,6 +4528,38 @@ apiRouter.get('/academic/classes', (req, res) => {
     res.json({ success: true, data: enriched });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Update / Assign Class Teacher for a class
+apiRouter.put('/academic/classes/:id/class-teacher', requireStaffOrAdmin, (req, res) => {
+  try {
+    const classId = parseInt(req.params.id, 10);
+    const { teacher_id } = req.body;
+    const cls = db.prepare('SELECT * FROM classes WHERE id = ?').get(classId);
+    if (!cls) {
+      return res.status(404).json({ success: false, error: 'Class not found' });
+    }
+
+    if (teacher_id === null || teacher_id === '' || teacher_id === 0) {
+      db.prepare('UPDATE classes SET class_teacher_id = NULL WHERE id = ?').run(classId);
+      return res.json({ success: true, message: `Class Teacher removed from ${cls.name}` });
+    }
+
+    const tId = parseInt(teacher_id, 10);
+    const teacher = db.prepare('SELECT * FROM teachers WHERE id = ? AND is_active = 1').get(tId);
+    if (!teacher) {
+      return res.status(400).json({ success: false, error: 'Active teacher not found' });
+    }
+
+    db.prepare('UPDATE classes SET class_teacher_id = ? WHERE id = ?').run(tId, classId);
+    return res.json({
+      success: true,
+      message: `Teacher "${teacher.name}" is now designated as Class Teacher for ${cls.name}`
+    });
+  } catch (err) {
+    console.error('Error updating class teacher:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

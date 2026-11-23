@@ -998,6 +998,36 @@ async function handleAttExamChange() {
     if (scoped.length > 0) filteredClasses = scoped;
   }
 
+  // Attendance is strictly input by designated Class Teachers (or Super Admin/Staff)
+  const isTeacher = Boolean(
+    window.auth?.state?.role === 'teacher' ||
+    window.auth?.role === 'teacher' ||
+    activeClasses.some(c => c.is_class_teacher === false)
+  );
+
+  if (isTeacher) {
+    filteredClasses = filteredClasses.filter(c => c.is_class_teacher === true);
+  }
+
+  if (isTeacher && filteredClasses.length === 0) {
+    classSel.innerHTML = '<option value="">No assigned Class Teacher classes</option>';
+    const tbody = document.getElementById('attendanceSheetTbody');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 3rem; color: #b45309; background: #fffbeb;">
+        <span class="material-symbols-outlined" style="font-size: 2.2rem; color: #f59e0b; display: block; margin-bottom: 0.5rem;">lock</span>
+        <strong style="font-size: 1rem; color: #92400e;">Attendance Entry Restricted to Designated Class Teachers</strong><br>
+        <span style="font-size: 0.85rem; color: #64748b; display: inline-block; margin-top: 0.35rem;">
+          You are not designated as the Class Teacher for any class in this examination (${escapeHtml(exam.name)}). Only assigned Class Teachers can input attendance for their students.
+        </span>
+      </td></tr>`;
+    }
+    const saveBtn = document.getElementById('saveAttendanceBtn');
+    if (saveBtn) saveBtn.style.display = 'none';
+    const wdInput = document.getElementById('attWorkingDays');
+    if (wdInput) wdInput.value = '';
+    return;
+  }
+
   let html = '<option value="">Select class...</option>';
   filteredClasses.forEach(c => {
     html += `<option value="${c.id}">${escapeHtml(c.name)}</option>`;
@@ -1093,7 +1123,10 @@ async function loadAttendanceSheet() {
     attachAttendanceCalcListeners();
   } catch (err) {
     console.error('Error loading attendance sheet:', err);
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #dc2626; padding: 2rem;">Error: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #dc2626; padding: 2rem;">
+      <span class="material-symbols-outlined" style="font-size: 1.8rem; vertical-align: middle; display: block; margin-bottom: 0.35rem;">lock</span>
+      ${escapeHtml(err.message)}
+    </td></tr>`;
     if (saveBtn) saveBtn.style.display = 'none';
   }
 }

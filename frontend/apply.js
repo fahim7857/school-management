@@ -218,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         requestedClasses.push({
           class_id: classId,
+          request_class_teacher: isClassTeacher,
           is_class_teacher: isClassTeacher,
           subject_ids: subjectIds
         });

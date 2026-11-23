@@ -1395,7 +1395,7 @@
             </div>`;
           }).join('') || '<span style="color: #94a3b8; font-size: 0.8rem;">None</span>';
 
-          const ctRequests = (app.requested_classes || []).filter(rc => rc.request_class_teacher);
+          const ctRequests = (app.requested_classes || []).filter(rc => rc.request_class_teacher || rc.is_class_teacher);
           const ctRequestsHtml = ctRequests.length > 0
             ? ctRequests.map(rc => `<span class="badge" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; font-size: 0.73rem; padding: 0.15rem 0.45rem; border-radius: 4px; display: inline-block; margin-bottom: 0.15rem; font-weight: 600;">${escapeHtml(rc.stream ? `${rc.stream} ${rc.class_name}` : rc.class_name)}</span>`).join(' ')
             : '<span style="color: #94a3b8; font-size: 0.8rem;">None</span>';
